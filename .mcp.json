@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "simpleaudio": {
+      "command": "/Applications/SimpleAudio.app/Contents/MacOS/simpleaudio-mcp"
+    }
+  }
+}

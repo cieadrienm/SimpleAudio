@@ -1,0 +1,355 @@
+import AppKit
+import Observation
+import SwiftUI
+import SimpleAudioCore
+
+@main
+struct SimpleAudioApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
+    var body: some Scene {
+        WindowGroup("SimpleAudio") {
+            ContentView(model: appDelegate.model)
+                .frame(minWidth: 920, minHeight: 540)
+                .onAppear {
+                    appDelegate.didAppear()
+                }
+        }
+        .windowStyle(.titleBar)
+        .defaultSize(width: 1280, height: 780)
+        .commands {
+            appCommands(model: appDelegate.model)
+        }
+
+        Settings {
+            PreferencesView(model: appDelegate.model) {
+                appDelegate.restartNetworkServers()
+            }
+        }
+    }
+
+    @CommandsBuilder
+    private func appCommands(model: AppModel) -> some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("À propos de SimpleAudio") {
+                NSApplication.shared.orderFrontStandardAboutPanel(options: [
+                    .applicationName: "SimpleAudio",
+                    .applicationVersion: "1.0.0",
+                    .credits: NSAttributedString(
+                        string: "Éditeur audio multipiste natif, léger et rapide.\ncie Adrien M — Compagnie Adrien M",
+                        attributes: [
+                            .font: NSFont.systemFont(ofSize: 11),
+                            .foregroundColor: NSColor.secondaryLabelColor,
+                        ]
+                    ),
+                ])
+            }
+        }
+
+        CommandGroup(replacing: .newItem) {
+            Button("Nouveau projet") {
+                model.newProject()
+            }
+            .keyboardShortcut("n", modifiers: [.command])
+
+            Button("Ouvrir un projet…") {
+                model.openDocumentPanel()
+            }
+            .keyboardShortcut("o", modifiers: [.command])
+
+            Button("Importer des fichiers audio…") {
+                model.importAudioPanel()
+            }
+            .keyboardShortcut("i", modifiers: [.command])
+
+            Button("Charger la démo multipiste") {
+                model.loadDemoProject()
+            }
+
+            Divider()
+
+            Button("Enregistrer") {
+                model.saveDocument()
+            }
+            .keyboardShortcut("s", modifiers: [.command])
+
+            Button("Enregistrer sous…") {
+                model.saveDocumentAs()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Exporter l'audio…") {
+                model.showExportSheet = true
+            }
+            .keyboardShortcut("e", modifiers: [.command])
+        }
+
+        CommandGroup(replacing: .undoRedo) {
+            Button(model.store.undoLabel.map { "Annuler \($0)" } ?? "Annuler") {
+                model.store.undo()
+            }
+            .keyboardShortcut("z", modifiers: [.command])
+            .disabled(!model.store.canUndo)
+
+            Button(model.store.redoLabel.map { "Rétablir \($0)" } ?? "Rétablir") {
+                model.store.redo()
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!model.store.canRedo)
+        }
+
+        CommandGroup(replacing: .pasteboard) {
+            Button("Couper") {
+                model.cutSelection()
+            }
+            .keyboardShortcut("x", modifiers: [.command])
+
+            Button("Copier") {
+                model.copySelection()
+            }
+            .keyboardShortcut("c", modifiers: [.command])
+
+            Button("Coller") {
+                model.pasteAtPlayhead()
+            }
+            .keyboardShortcut("v", modifiers: [.command])
+
+            Button("Dupliquer") {
+                model.duplicateSelectedClips()
+            }
+            .keyboardShortcut("d", modifiers: [.command])
+
+            Divider()
+
+            Button("Rogner sur la plage (Crop)") {
+                model.cropToSelection()
+            }
+            .keyboardShortcut("t", modifiers: [.command])
+            .disabled(model.selectionRange == nil)
+
+            Button("Silencer la plage") {
+                model.silenceSelection()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .disabled(model.selectionRange == nil)
+
+            Divider()
+
+            Button("Supprimer") {
+                model.deleteSelection(ripple: false)
+            }
+
+            Button("Supprimer et raccorder") {
+                model.deleteSelection(ripple: true)
+            }
+
+            Divider()
+
+            Button("Tout sélectionner") {
+                model.selectAll()
+            }
+            .keyboardShortcut("a", modifiers: [.command])
+        }
+
+        CommandMenu("Audio") {
+            Button("Scinder à la tête de lecture") {
+                model.splitAtPlayhead()
+            }
+            .keyboardShortcut("k", modifiers: [.command])
+
+            Divider()
+
+            Button("Fondu d'entrée (0.5 s)") {
+                model.applyFadeIn(duration: 0.5)
+            }
+
+            Button("Fondu de sortie (0.5 s)") {
+                model.applyFadeOut(duration: 0.5)
+            }
+
+            Menu("Courbe de fondu") {
+                ForEach(FadeShape.allCases, id: \.self) { shape in
+                    Button(shape.label) {
+                        let ids = model.selectedClips
+                        model.store.perform("Courbe de fondu") { proj in
+                            for id in ids {
+                                try? Operations.setFade(&proj, id: id, shape: shape)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Normaliser à -0.1 dBFS") {
+                model.normalizeSelectedClips(targetDB: -0.1)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+
+            Button("Supprimer les silences aux extrémités") {
+                model.stripSilenceOnSelected()
+            }
+
+            Button("Inverser le sens (Reverse)") {
+                model.reverseSelectedClips()
+            }
+            .keyboardShortcut("r", modifiers: [.command])
+        }
+
+        CommandMenu("Piste") {
+            Button("Nouvelle piste audio") {
+                model.addTrack()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+
+            Button("Dupliquer la piste") {
+                model.duplicateSelectedTrack()
+            }
+
+            Button("Supprimer la piste") {
+                model.removeSelectedTrack()
+            }
+            .disabled(model.store.project.tracks.count <= 1)
+
+            Divider()
+
+            Button("Muet sur la piste active") {
+                if let id = model.selectedTrackID {
+                    model.toggleTrackMute(id)
+                }
+            }
+
+            Button("Solo sur la piste active") {
+                if let id = model.selectedTrackID {
+                    model.toggleTrackSolo(id)
+                }
+            }
+
+            Button("Afficher/Masquer les canaux L/R") {
+                if let id = model.selectedTrackID {
+                    model.toggleTrackStereoSplit(id)
+                }
+            }
+        }
+
+        CommandMenu("Transport") {
+            Button(model.transportPlaying ? "Pause" : "Lecture") {
+                model.togglePlay()
+            }
+
+            Button("Retour au début") {
+                model.seek(to: 0)
+            }
+
+            Button("Lecture en boucle") {
+                model.toggleLoop()
+            }
+            .keyboardShortcut("l", modifiers: [.command])
+
+            Divider()
+
+            Button("Ajouter un marqueur") {
+                model.addMarkerAtPlayhead()
+            }
+        }
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let model = AppModel()
+    private var apiServer: APIServer?
+    private var oscServer: OSCServer?
+    private var didStart = false
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let args = Array(CommandLine.arguments.dropFirst())
+
+        if args.contains("--self-test") {
+            SelfTest.runAndExit()
+        }
+
+        if let snapIdx = args.firstIndex(of: "--snapshot") {
+            let outPath = (snapIdx + 1 < args.count) ? args[snapIdx + 1] : "/tmp/simpleaudio-snapshot.png"
+            let positional = args.enumerated().compactMap { i, a -> String? in
+                if i == snapIdx || i == snapIdx + 1 || a.hasPrefix("-") { return nil }
+                return a
+            }.first
+            Snapshot.runCLISnapshot(outputPath: outPath, inputPath: positional)
+        }
+    }
+
+    func didAppear() {
+        guard !didStart else { return }
+        didStart = true
+
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+
+        if let envAPIPort = ProcessInfo.processInfo.environment["SIMPLEAUDIO_API_PORT"],
+           let p = UInt16(envAPIPort) {
+            model.apiPort = p
+        }
+        if let envOSCPort = ProcessInfo.processInfo.environment["SIMPLEAUDIO_OSC_IN_PORT"],
+           let p = UInt16(envOSCPort) {
+            model.oscInputPort = p
+        }
+
+        restartNetworkServers()
+        observeStateForSSE()
+
+        let args = Array(CommandLine.arguments.dropFirst()).filter { !$0.hasPrefix("-") }
+        if let firstPath = args.first {
+            let url = URL(fileURLWithPath: (firstPath as NSString).expandingTildeInPath)
+            if FileManager.default.fileExists(atPath: url.path) {
+                if url.pathExtension.lowercased() == "simpleaudio" {
+                    model.openDocument(url: url)
+                } else {
+                    model.openAudioAsNewProject(url: url)
+                }
+            }
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let first = urls.first else { return }
+        if first.pathExtension.lowercased() == "simpleaudio" {
+            model.openDocument(url: first)
+        } else {
+            model.importAudioFiles(urls: urls, onNewTracks: true)
+        }
+    }
+
+    func restartNetworkServers() {
+        apiServer?.stop()
+        oscServer?.stop()
+
+        let api = APIServer(model: model)
+        if !api.start(port: model.apiPort) {
+            _ = api.start(port: 0)
+        }
+        self.apiServer = api
+
+        let osc = OSCServer(model: model)
+        if !osc.start(port: model.oscInputPort) {
+            _ = osc.start(port: 0)
+        }
+        self.oscServer = osc
+    }
+
+    private func observeStateForSSE() {
+        withObservationTracking {
+            _ = model.store.changeCount
+            _ = model.transportPlaying
+            _ = model.selectionRange
+            _ = model.selectedClips
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.apiServer?.notifyStateChanged()
+                self?.observeStateForSSE()
+            }
+        }
+    }
+}
