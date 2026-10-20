@@ -37,6 +37,37 @@ struct StatusBar: View {
                 statusDot(label: "API :\(model.apiPort)", active: model.apiListening)
                 statusDot(label: "OSC :\(model.oscInputPort)", active: model.oscListening)
             }
+
+            Divider().frame(height: 12)
+
+            HStack(spacing: 12) {
+                Button {
+                    model.showHelp = true
+                } label: {
+                    Text("? aide")
+                }
+                .buttonStyle(.plain)
+                .help("Ouvrir le guide d’utilisation de SimpleAudio (⌘?)")
+
+                Button {
+                    model.showShortcuts = true
+                } label: {
+                    Text("⌘/ raccourcis")
+                }
+                .buttonStyle(.plain)
+                .help("Afficher les raccourcis clavier (⌘/)")
+
+                Button {
+                    model.showAbout = true
+                } label: {
+                    Text(AppVersion.current.shortLabel)
+                        .foregroundStyle(Color(nsColor: Theme.textDim))
+                }
+                .buttonStyle(.plain)
+                .help("À propos de SimpleAudio \(AppVersion.current.description)")
+            }
+            .font(.system(size: 10.5, design: .monospaced))
+            .foregroundStyle(Color(nsColor: Theme.textFaint))
         }
         .padding(.horizontal, 12)
         .frame(height: 24)

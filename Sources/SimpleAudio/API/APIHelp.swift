@@ -3,7 +3,7 @@ import Foundation
 enum APIHelp {
     static let schema: [String: Any] = [
         "name": "SimpleAudio API",
-        "version": "1.0.0",
+        "version": AppVersion.current.version,
         "company": "cie Adrien M",
         "bundleIdentifier": "net.cieadrienm.simpleaudio",
         "http": [

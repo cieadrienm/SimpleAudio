@@ -5,7 +5,7 @@ public final class SimpleAudioMCPServer {
     let apiBase: String
     let version: String
 
-    public init(transport: @escaping Transport, apiBase: String = "http://127.0.0.1:17910", version: String = "0.1.0") {
+    public init(transport: @escaping Transport, apiBase: String = "http://127.0.0.1:17910", version: String = "0.9.0") {
         self.transport = transport
         self.apiBase = apiBase
         self.version = version

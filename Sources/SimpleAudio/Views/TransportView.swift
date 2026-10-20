@@ -181,7 +181,7 @@ struct TransportView: View {
                     IconButton(symbol: "minus.magnifyingglass", helpText: "Zoom arrière (-)") {
                         onZoomOut()
                     }
-                    IconButton(symbol: "arrow.left.and.right.square", helpText: "Ajuster à la fenêtre (0)") {
+                    IconButton(symbol: "arrow.left.and.right.square", helpText: "Basculer Tout voir ↔ Zoom sur le curseur (Z)") {
                         onZoomFit()
                     }
                     IconButton(symbol: "plus.magnifyingglass", helpText: "Zoom avant (+)") {

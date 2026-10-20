@@ -21,7 +21,7 @@ struct ContentView: View {
                     }
                 },
                 onZoomFit: {
-                    timelineRef?.fit()
+                    model.perform(.toggleZoom)
                 }
             )
 
@@ -60,6 +60,30 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $model.showExportSheet) {
             ExportSheet(model: model)
+        }
+        .sheet(isPresented: $model.showShortcuts) {
+            ShortcutsSheet { model.showShortcuts = false }
+        }
+        .sheet(isPresented: $model.showHelp) {
+            HelpManualSheet(openShortcuts: {
+                DispatchQueue.main.async { model.showShortcuts = true }
+            }) {
+                model.showHelp = false
+            }
+        }
+        .sheet(isPresented: $model.showAbout) {
+            AboutSheet(
+                apiPort: model.apiPort,
+                apiListening: model.apiListening,
+                oscPort: model.oscInputPort,
+                oscListening: model.oscListening,
+                openHelp: {
+                    DispatchQueue.main.async { model.showHelp = true }
+                },
+                close: {
+                    model.showAbout = false
+                }
+            )
         }
     }
 

@@ -47,10 +47,20 @@ enum SelfTest {
         try check(!wave.peaks.isEmpty && !wave.rms.isEmpty, "Waveform peaks/rms empty")
         try check(wave.channelCount == 2, "Expected stereo waveform")
 
-        // 2. Verify TimelineView geometry, hit-testing, and mouse gestures
+        // 2. Verify TimelineView geometry, hit-testing, mouse gestures, and Z zoom toggle
+        try check(AppVersion.current.version == "0.9.0", "Expected version 0.9.0, got \(AppVersion.current.version)")
         let tv = TimelineView(model: model)
+        model.timelineView = tv
         tv.frame = CGRect(x: 0, y: 0, width: 1000, height: 500)
         tv.layout()
+        try check(tv.isFitted, "Expected timeline to start fitted")
+        let fitSPP = tv.secondsPerPoint
+        model.selectionRange = nil
+        model.seek(to: 1.5)
+        model.perform(.toggleZoom) // Z: zoom in around playhead
+        try check(!tv.isFitted && tv.secondsPerPoint < fitSPP * 0.5, "Expected Z to zoom in around playhead")
+        model.perform(.toggleZoom) // Z again: zoom back out to fit whole project
+        try check(tv.isFitted && abs(tv.secondsPerPoint - fitSPP) < 1e-6, "Expected second Z to restore whole-project fit")
         let rows = tv.trackRows()
         try check(rows.count == 3, "Expected 3 track rows")
         let clipRect = tv.clipRect(firstClip, in: rows[0].rect)

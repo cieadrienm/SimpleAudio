@@ -43,6 +43,7 @@ final class AppModel {
         case addMarker
         case selectAll
         case deselectAll
+        case toggleZoom
         case zoomToFit
         case zoomToSelection
         case zoomIn
@@ -65,6 +66,9 @@ final class AppModel {
     var inspectorVisible = true
     var sidebarVisible = true
     var showExport = false
+    var showAbout = false
+    var showHelp = false
+    var showShortcuts = false
     var errorMessage: String?
     var statusFlash: String?
     var statusMessage: String = "Prêt"
@@ -662,15 +666,17 @@ final class AppModel {
             selectionRange = nil
             selectedMarkerID = nil
             timelineView?.needsDisplay = true
+        case .toggleZoom:
+            timelineView?.toggleZoomToFitOrPlayhead()
         case .zoomToFit:
-            timelineView?.fit()
+            timelineView?.fit(animate: true)
         case .zoomToSelection:
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.01 {
-                timelineView?.zoom(toRange: range)
+                timelineView?.zoom(toRange: range, animate: true)
             } else if let c = selectedClipObjects.first {
-                timelineView?.zoom(toRange: c.offset...c.end)
+                timelineView?.zoom(toRange: c.offset...c.end, animate: true)
             } else {
-                timelineView?.fit()
+                timelineView?.toggleZoomToFitOrPlayhead()
             }
         case .zoomIn:
             timelineView?.zoom(by: 1.4, at: timelineView?.x(for: playhead) ?? 300)
@@ -1045,14 +1051,16 @@ final class AppModel {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            if let responder = event.window?.firstResponder, responder is NSTextView {
-                return event
-            }
-            return self.handleKeyDown(event) ? nil : event
+            return MainActor.assumeIsolated { self.handleKeyDown(event) } ? nil : event
         }
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if showExport || showAbout || showHelp || showShortcuts { return false }
+        if let w = event.window {
+            if w.sheetParent != nil { return false }
+            if w.firstResponder is NSText { return false }
+        }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
 
@@ -1071,23 +1079,31 @@ final class AppModel {
                 return true
             }
         }
-        // Escape -> clear range selection
+        // Escape -> clear range & clip selection
         if event.keyCode == 53, flags.isEmpty {
-            perform(.clearSelectionRange)
+            perform(.deselectAll)
+            return true
+        }
+        // Return / Enter / Home -> Rewind
+        if (event.keyCode == 36 || event.keyCode == 76 || event.keyCode == 115), flags.isEmpty {
+            perform(.rewind)
             return true
         }
         // Left / Right arrows
-        if event.keyCode == 123, flags.isEmpty {
-            perform(.stepBackward)
+        if event.keyCode == 123, flags.isEmpty || flags == .shift {
+            if flags == .shift {
+                seek(to: max(0, playhead - 1.0))
+            } else {
+                perform(.stepBackward)
+            }
             return true
         }
-        if event.keyCode == 124, flags.isEmpty {
-            perform(.stepForward)
-            return true
-        }
-        // Home -> Rewind
-        if event.keyCode == 115, flags.isEmpty {
-            perform(.rewind)
+        if event.keyCode == 124, flags.isEmpty || flags == .shift {
+            if flags == .shift {
+                seek(to: min(totalDuration, playhead + 1.0))
+            } else {
+                perform(.stepForward)
+            }
             return true
         }
 
@@ -1105,6 +1121,29 @@ final class AppModel {
         if flags == .option, chars == "i" || chars == "o" {
             perform(.clearSelectionRange)
             return true
+        }
+
+        // Shift+Z -> Zoom to selection range or selected clip
+        if flags == .shift, chars == "z" {
+            perform(.zoomToSelection)
+            return true
+        }
+
+        // Command+= / Command+- / Command+0 -> Zoom In / Out / Toggle Fit
+        if flags == .command {
+            switch chars {
+            case "=", "+":
+                perform(.zoomIn)
+                return true
+            case "-":
+                perform(.zoomOut)
+                return true
+            case "0":
+                perform(.toggleZoom)
+                return true
+            default:
+                return false
+            }
         }
 
         guard flags.isEmpty else { return false }
@@ -1134,8 +1173,8 @@ final class AppModel {
         case "f":
             perform(.zoomToFit)
             return true
-        case "z":
-            perform(.zoomToSelection)
+        case "z", "0":
+            perform(.toggleZoom)
             return true
         case "n":
             perform(.toggleSnapping)

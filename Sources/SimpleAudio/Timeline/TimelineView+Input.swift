@@ -646,71 +646,9 @@ extension TimelineView {
     // MARK: Keyboard Navigation & Shortcuts
 
     override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
-
-        switch event.keyCode {
-        case 49: // Space
-            model.togglePlay()
+        if model.handleKeyDown(event) {
             return
-        case 51, 117: // Delete / Forward Delete
-            model.deleteSelection(ripple: flags.contains(.shift))
-            return
-        case 53: // Escape
-            model.selectionRange = nil
-            model.selectedClips.removeAll()
-            model.selectedMarkerID = nil
-            needsDisplay = true
-            return
-        case 36, 76: // Return / Enter
-            model.seek(to: 0)
-            return
-        case 123: // Left arrow
-            let step = flags.contains(.shift) ? 1.0 : TimelineGrid.step(secondsPerPoint: secondsPerPoint, minPoints: 14)
-            model.seek(to: max(0, model.playhead - step))
-            return
-        case 124: // Right arrow
-            let step = flags.contains(.shift) ? 1.0 : TimelineGrid.step(secondsPerPoint: secondsPerPoint, minPoints: 14)
-            model.seek(to: min(contentDuration, model.playhead + step))
-            return
-        default:
-            break
         }
-
-        if flags.isEmpty || flags == .shift {
-            switch chars {
-            case "b", "s":
-                model.splitAtPlayhead()
-                return
-            case "m":
-                model.addMarkerAtPlayhead()
-                return
-            case "i":
-                let t = model.playhead
-                let end = max(t, model.selectionRange?.upperBound ?? contentDuration)
-                model.selectionRange = t...end
-                needsDisplay = true
-                return
-            case "o":
-                let t = model.playhead
-                let start = min(t, model.selectionRange?.lowerBound ?? 0)
-                model.selectionRange = start...t
-                needsDisplay = true
-                return
-            case "=", "+":
-                zoom(by: 1.35, at: x(for: model.playhead))
-                return
-            case "-":
-                zoom(by: 1.0 / 1.35, at: x(for: model.playhead))
-                return
-            case "0":
-                fit()
-                return
-            default:
-                break
-            }
-        }
-
         super.keyDown(with: event)
     }
 }

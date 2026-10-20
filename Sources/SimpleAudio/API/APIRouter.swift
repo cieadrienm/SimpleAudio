@@ -183,7 +183,8 @@ enum APIRouter {
     static func stateDict(model: AppModel) -> [String: Any] {
         let proj = model.store.project
         var dict: [String: Any] = [
-            "version": "1.0.0",
+            "version": AppVersion.current.version,
+            "build": AppVersion.current.build ?? NSNull(),
             "company": "cie Adrien M",
             "file": model.store.url?.path ?? NSNull(),
             "dirty": model.store.isDirty,

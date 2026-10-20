@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
-VERSION="1.0.0"
+VERSION="0.9.0"
 BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 
 if [ ! -f Resources/AppIcon.icns ]; then

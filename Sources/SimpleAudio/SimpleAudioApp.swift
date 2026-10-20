@@ -32,17 +32,7 @@ struct SimpleAudioApp: App {
     private func appCommands(model: AppModel) -> some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("À propos de SimpleAudio") {
-                NSApplication.shared.orderFrontStandardAboutPanel(options: [
-                    .applicationName: "SimpleAudio",
-                    .applicationVersion: "1.0.0",
-                    .credits: NSAttributedString(
-                        string: "Éditeur audio multipiste natif, léger et rapide.\ncie Adrien M — Compagnie Adrien M",
-                        attributes: [
-                            .font: NSFont.systemFont(ofSize: 11),
-                            .foregroundColor: NSColor.secondaryLabelColor,
-                        ]
-                    ),
-                ])
+                model.showAbout = true
             }
         }
 
@@ -255,6 +245,59 @@ struct SimpleAudioApp: App {
                 model.addMarkerAtPlayhead()
             }
         }
+
+        CommandGroup(after: .toolbar) {
+            Button(model.showSidebar ? "Masquer la barre latérale" : "Afficher la barre latérale") {
+                model.showSidebar.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .option])
+
+            Button(model.showInspector ? "Masquer l’inspecteur" : "Afficher l’inspecteur") {
+                model.showInspector.toggle()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+
+            Divider()
+
+            Button("Basculer le zoom (Tout voir ↔ Curseur)  Z") {
+                model.perform(.toggleZoom)
+            }
+            .keyboardShortcut("0", modifiers: [.command])
+
+            Button("Ajuster à la fenêtre  F") {
+                model.perform(.zoomToFit)
+            }
+
+            Button("Zoom avant") {
+                model.perform(.zoomIn)
+            }
+            .keyboardShortcut("=", modifiers: [.command])
+
+            Button("Zoom arrière") {
+                model.perform(.zoomOut)
+            }
+            .keyboardShortcut("-", modifiers: [.command])
+
+            Divider()
+
+            Button((model.snapping ? "✓ " : "") + "Magnétisme  N") {
+                model.perform(.toggleSnapping)
+            }
+        }
+
+        CommandGroup(replacing: .help) {
+            Button("Aide SimpleAudio") {
+                model.showHelp = true
+            }
+            .keyboardShortcut("?", modifiers: [.command])
+
+            Divider()
+
+            Button("Raccourcis clavier") {
+                model.showShortcuts = true
+            }
+            .keyboardShortcut("/", modifiers: [.command])
+        }
     }
 }
 
@@ -266,6 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didStart = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        AppVersion.runIfRequested()
         let args = Array(CommandLine.arguments.dropFirst())
 
         if args.contains("--self-test") {
@@ -287,6 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         didStart = true
 
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        model.installKeyMonitor()
 
         if let envAPIPort = ProcessInfo.processInfo.environment["SIMPLEAUDIO_API_PORT"],
            let p = UInt16(envAPIPort) {

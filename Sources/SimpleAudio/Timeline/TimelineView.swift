@@ -82,6 +82,8 @@ final class TimelineView: NSView {
     private var didInitialFit = false
     private var fittedURL: URL?
     private var lastChangeCount = -1
+    private var zoomTimer: Timer?
+    private var zoomAnimation: (fromSPP: Double, toSPP: Double, fromOffset: Double, toOffset: Double, start: CFTimeInterval, duration: CFTimeInterval)?
 
     init(model: AppModel) {
         self.model = model
@@ -260,24 +262,115 @@ final class TimelineView: NSView {
         return total / width
     }
 
-    func fit() {
-        secondsPerPoint = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
-        scrollOffset = 0
-        clampScroll()
-        refresh()
+    var isFitted: Bool {
+        let fitSPP = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
+        return abs(secondsPerPoint - fitSPP) / max(fitSPP, 1e-9) < 0.02
+            && scrollOffset < max(0.05, contentDuration * 0.01)
     }
 
-    func zoom(toRange range: ClosedRange<Double>) {
+    func fit(animate: Bool = false) {
+        let targetSPP = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
+        applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: 0, animate: animate)
+    }
+
+    func zoom(toRange range: ClosedRange<Double>, animate: Bool = false) {
         let span = max(range.upperBound - range.lowerBound, 0.02)
         let width = Double(max(laneWidth - Metrics.leadIn - Metrics.endMargin, 40))
-        secondsPerPoint = max(span / (width * 0.85), Metrics.minSecondsPerPoint)
-        scrollOffset = max(0, range.lowerBound - span * 0.075)
+        let targetSPP = max(span / (width * 0.85), Metrics.minSecondsPerPoint)
+        let targetOffset = max(0, range.lowerBound - span * 0.075)
+        applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
+    }
+
+    /// Frame the whole project smoothly; when already fitted, zoom to the active selection range or a window around the playhead (`z` shortcut, same idiom as OSCScore & ScoreFollower).
+    func toggleZoomToFitOrPlayhead(toggleWindow: Double = 15.0, animate: Bool = true) {
+        let baseSPP = zoomAnimation?.toSPP ?? secondsPerPoint
+        let baseOffset = zoomAnimation?.toOffset ?? scrollOffset
+        let fitSPP = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
+        let currentlyFitted = abs(baseSPP - fitSPP) / max(fitSPP, 1e-9) < 0.02
+            && baseOffset < max(0.05, contentDuration * 0.01)
+
+        if !currentlyFitted {
+            applyZoomTarget(secondsPerPoint: fitSPP, scrollOffset: 0, animate: animate)
+            return
+        }
+
+        // Already fitted: zoom into active range selection if narrower than the project, else around playhead
+        if let range = model.selectionRange,
+           range.upperBound > range.lowerBound + 0.01,
+           (range.upperBound - range.lowerBound) < contentDuration * 0.92 {
+            zoom(toRange: range, animate: animate)
+            return
+        }
+
+        let usableWidth = Double(max(laneWidth - Metrics.leadIn - Metrics.endMargin, 40))
+        let win = contentDuration > toggleWindow ? toggleWindow : max(contentDuration * 0.25, 0.2)
+        let targetSPP = max(min(win / usableWidth, fitSPP * 0.25), Metrics.minSecondsPerPoint)
+        let visible = usableWidth * targetSPP
+        let upper = max(0, contentDuration - visible * 0.5)
+        let targetOffset = min(max(0, model.playhead - visible * 0.5), upper)
+        applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
+    }
+
+    private func applyZoomTarget(secondsPerPoint targetSPP: Double, scrollOffset targetOffset: Double, animate: Bool) {
+        cancelZoomAnimation()
+        let isAutomated = CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--snapshot")
+        guard animate, window != nil, !isAutomated,
+              abs(targetSPP - secondsPerPoint) > 1e-7 || abs(targetOffset - scrollOffset) > 1e-4 else {
+            secondsPerPoint = targetSPP
+            scrollOffset = targetOffset
+            clampScroll()
+            refresh()
+            return
+        }
+        zoomAnimation = (
+            fromSPP: secondsPerPoint,
+            toSPP: targetSPP,
+            fromOffset: scrollOffset,
+            toOffset: targetOffset,
+            start: CACurrentMediaTime(),
+            duration: 0.18
+        )
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stepZoomAnimation() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        zoomTimer = timer
+    }
+
+    private func cancelZoomAnimation() {
+        zoomTimer?.invalidate()
+        zoomTimer = nil
+        zoomAnimation = nil
+    }
+
+    private func stepZoomAnimation() {
+        guard let anim = zoomAnimation else {
+            cancelZoomAnimation()
+            return
+        }
+        let t = min(max((CACurrentMediaTime() - anim.start) / max(anim.duration, 1e-6), 0), 1)
+        if t >= 1 {
+            secondsPerPoint = anim.toSPP
+            scrollOffset = anim.toOffset
+            cancelZoomAnimation()
+            clampScroll()
+            refresh()
+            return
+        }
+        let f = 1 - pow(1 - t, 3) // cubic ease-out
+        let logFrom = log(max(anim.fromSPP, 1e-9))
+        let logTo = log(max(anim.toSPP, 1e-9))
+        let spp = exp(logFrom + (logTo - logFrom) * f)
+        let u = abs(anim.toSPP - anim.fromSPP) > 1e-9 ? (spp - anim.fromSPP) / (anim.toSPP - anim.fromSPP) : f
+        secondsPerPoint = spp
+        scrollOffset = anim.fromOffset + (anim.toOffset - anim.fromOffset) * u
         clampScroll()
         refresh()
     }
 
     func zoom(by factor: CGFloat, at viewX: CGFloat) {
         guard factor > 0, factor.isFinite else { return }
+        cancelZoomAnimation()
         let anchor = time(for: viewX)
         let widest = max(fitSecondsPerPoint * 1.25, secondsPerPoint, Metrics.minSecondsPerPoint)
         secondsPerPoint = min(max(secondsPerPoint / Double(factor), Metrics.minSecondsPerPoint), widest)
