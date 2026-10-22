@@ -37,6 +37,26 @@ struct WelcomeView: View {
                 }
             }
 
+            if !model.recentFiles.isEmpty {
+                VStack(spacing: 6) {
+                    Text("RÉCENTS")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .kerning(0.8)
+                        .foregroundStyle(Color(nsColor: Theme.textFaint))
+                    HStack(spacing: 6) {
+                        ForEach(model.recentFiles.prefix(5), id: \.path) { url in
+                            let ext = url.pathExtension.lowercased()
+                            let icon = AppModel.midiExtensions.contains(ext) ? "pianokeys" : (AppModel.projectExtensions.contains(ext) ? "doc.text" : "waveform")
+                            TextButton(title: url.lastPathComponent, symbol: icon, compact: true) {
+                                model.requestOpen(url)
+                            }
+                            .help(url.path)
+                        }
+                    }
+                }
+                .padding(.top, 2)
+            }
+
             HStack(spacing: 18) {
                 shortcutHint("Espace", "Lecture")
                 shortcutHint("B", "Scinder")

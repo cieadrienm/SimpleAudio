@@ -80,6 +80,10 @@ final class AppModel {
     var errorMessage: String?
     var statusFlash: String?
     var statusMessage: String = "Prêt"
+    var recentFiles: [URL] = []
+
+    private static let recentFilesDefaultsKey = "simpleaudio.recentFiles"
+    private static let maxRecentFiles = 15
 
     var apiPort: UInt16 = 17910
     var apiListening: Bool = false
@@ -135,7 +139,43 @@ final class AppModel {
             guard let self else { return }
             self.timelineView?.updatePlayhead(t)
         }
+        loadRecentFiles()
         observeStore()
+    }
+
+    // MARK: Recent Files ("Ouvrir l’élément récent")
+
+    func loadRecentFiles() {
+        let paths = UserDefaults.standard.stringArray(forKey: Self.recentFilesDefaultsKey) ?? []
+        recentFiles = paths
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    func recordRecentFile(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: standardized.path) else { return }
+        // Skip internal self-test or temporary demo fixtures
+        let path = standardized.path
+        if path.contains("SimpleAudioSelfTest") || path.contains("SimpleAudioDemo") || path.contains("SimpleAudioBounces") {
+            return
+        }
+        var updated = recentFiles.filter { $0.standardizedFileURL.path != path }
+        updated.insert(standardized, at: 0)
+        if updated.count > Self.maxRecentFiles {
+            updated = Array(updated.prefix(Self.maxRecentFiles))
+        }
+        recentFiles = updated
+        UserDefaults.standard.set(updated.map(\.path), forKey: Self.recentFilesDefaultsKey)
+        if !CommandLine.arguments.contains("--self-test") && !CommandLine.arguments.contains("--snapshot") {
+            NSDocumentController.shared.noteNewRecentDocumentURL(standardized)
+        }
+    }
+
+    func clearRecentFiles() {
+        recentFiles.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.recentFilesDefaultsKey)
+        NSDocumentController.shared.clearRecentDocuments(nil)
     }
 
     var project: AudioProject { store.project }
@@ -294,6 +334,7 @@ final class AppModel {
                 engine.update(project: store.project, projectURL: store.url)
                 engine.seek(to: 0)
                 timelineView?.fit()
+                recordRecentFile(standardized)
             } catch {
                 errorMessage = "Impossible d'ouvrir \(standardized.lastPathComponent) : \(error.localizedDescription)"
             }
@@ -324,6 +365,7 @@ final class AppModel {
                 engine.update(project: store.project, projectURL: store.url, soundfontURL: companionSF)
                 engine.seek(to: 0)
                 timelineView?.fit()
+                recordRecentFile(standardized)
                 flash("MIDI ouvert · \(decoded.noteCount) notes")
             } catch {
                 errorMessage = "Impossible d'ouvrir le fichier MIDI \(standardized.lastPathComponent) : \(error.localizedDescription)"
@@ -364,6 +406,7 @@ final class AppModel {
         engine.update(project: store.project, projectURL: store.url)
         engine.seek(to: 0)
         timelineView?.fit()
+        recordRecentFile(standardized)
     }
 
     /// Imports a Standard MIDI File (`.mid`) into the current project as one or more MIDI tracks.
@@ -408,6 +451,7 @@ final class AppModel {
             _ = loadSoundfont(url: sf)
         }
         engine.update(project: store.project, projectURL: store.url)
+        recordRecentFile(standardized)
         return addedTrackIDs
     }
 
@@ -444,6 +488,7 @@ final class AppModel {
             selectedTrackID = project.tracks[ti].id
         }
         engine.update(project: store.project, projectURL: store.url)
+        recordRecentFile(standardized)
         return clip.id
     }
 
@@ -558,6 +603,7 @@ final class AppModel {
             let data = try DocumentStore.encode(proj)
             try data.write(to: url, options: .atomic)
             store.markSaved(at: url, isProjectFile: true)
+            recordRecentFile(url)
             flash("enregistré")
         } catch {
             errorMessage = "Impossible d'enregistrer : \(error.localizedDescription)"

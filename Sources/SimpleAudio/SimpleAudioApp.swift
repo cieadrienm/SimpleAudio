@@ -47,6 +47,22 @@ struct SimpleAudioApp: App {
             }
             .keyboardShortcut("o", modifiers: [.command])
 
+            Menu("Ouvrir l’élément récent") {
+                if model.recentFiles.isEmpty {
+                    Text("Aucun élément récent")
+                } else {
+                    ForEach(model.recentFiles, id: \.path) { url in
+                        Button(url.lastPathComponent) {
+                            model.requestOpen(url)
+                        }
+                    }
+                    Divider()
+                    Button("Effacer le menu") {
+                        model.clearRecentFiles()
+                    }
+                }
+            }
+
             Button("Importer des fichiers Audio / MIDI…") {
                 model.importAudioPanel()
             }
