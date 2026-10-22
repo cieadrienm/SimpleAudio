@@ -43,71 +43,78 @@ struct ExportSheet: View {
                     .frame(width: 210)
                 }
 
-                FieldRow("Fréquence") {
-                    Picker("", selection: $sampleRate) {
-                        Text("44 100 Hz").tag(44_100.0)
-                        Text("48 000 Hz").tag(48_000.0)
-                        Text("96 000 Hz").tag(96_000.0)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
-                }
-
-                if format == .wav || format == .aiff || format == .caf {
-                    FieldRow("Résolution") {
-                        Picker("", selection: $bitDepth) {
-                            ForEach(ExportBitDepth.allCases, id: \.self) { depth in
-                                Text(depth.label).tag(depth)
-                            }
+                if format != .mid {
+                    FieldRow("Fréquence") {
+                        Picker("", selection: $sampleRate) {
+                            Text("44 100 Hz").tag(44_100.0)
+                            Text("48 000 Hz").tag(48_000.0)
+                            Text("96 000 Hz").tag(96_000.0)
                         }
                         .labelsHidden()
                         .pickerStyle(.segmented)
                         .frame(width: 240)
                     }
-                }
 
-                FieldRow("Canaux") {
-                    Picker("", selection: $channels) {
-                        Text("Stéréo (L/R)").tag(2)
-                        Text("Mono").tag(1)
+                    if format == .wav || format == .aiff || format == .caf {
+                        FieldRow("Résolution") {
+                            Picker("", selection: $bitDepth) {
+                                ForEach(ExportBitDepth.allCases, id: \.self) { depth in
+                                    Text(depth.label).tag(depth)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 240)
+                        }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
-                }
 
-                if let range = model.selectionRange, range.upperBound > range.lowerBound + 1e-4 {
-                    FieldRow("Étendue") {
-                        Picker("", selection: $exportRangeOnly) {
-                            Text("Projet complet (\(TimeFormat.shortDuration(model.store.project.totalDuration)))").tag(false)
-                            Text("Plage (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))").tag(true)
+                    FieldRow("Canaux") {
+                        Picker("", selection: $channels) {
+                            Text("Stéréo (L/R)").tag(2)
+                            Text("Mono").tag(1)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 200)
+                    }
+
+                    if let range = model.selectionRange, range.upperBound > range.lowerBound + 1e-4 {
+                        FieldRow("Étendue") {
+                            Picker("", selection: $exportRangeOnly) {
+                                Text("Projet complet (\(TimeFormat.shortDuration(model.store.project.totalDuration)))").tag(false)
+                                Text("Plage (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))").tag(true)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(width: 240)
+                        }
+                    }
+
+                    FieldRow("Sortie") {
+                        Picker("", selection: $exportStems) {
+                            Text("Mixage stéréo (Master)").tag(false)
+                            Text("Pistes séparées (Stems)").tag(true)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
-                        .frame(width: 240)
+                        .frame(width: 220)
                     }
-                }
 
-                FieldRow("Sortie") {
-                    Picker("", selection: $exportStems) {
-                        Text("Mixage stéréo (Master)").tag(false)
-                        Text("Pistes séparées (Stems)").tag(true)
+                    FieldRow("Niveau") {
+                        Picker("", selection: $normMode) {
+                            Text("Niveau tel quel").tag(0)
+                            Text("Normaliser crête (-0.1 dBFS)").tag(1)
+                            Text("Normaliser loudness (-14 LUFS)").tag(2)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 220)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 220)
-                }
-
-                FieldRow("Niveau") {
-                    Picker("", selection: $normMode) {
-                        Text("Niveau tel quel").tag(0)
-                        Text("Normaliser crête (-0.1 dBFS)").tag(1)
-                        Text("Normaliser loudness (-14 LUFS)").tag(2)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 220)
+                } else {
+                    Text("Exporte toutes les pistes MIDI du projet au format Standard MIDI File (.mid Format 1) avec tempo et signature.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(nsColor: Theme.textDim))
+                        .padding(.vertical, 4)
                 }
             }
 

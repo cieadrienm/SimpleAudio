@@ -1,3 +1,4 @@
+import Accelerate
 import AppKit
 import SimpleAudioCore
 import SimpleAudioEngine
@@ -21,6 +22,16 @@ enum TimelineStyle {
         .foregroundColor: Theme.text,
         .paragraphStyle: truncating,
     ]
+    static let noteLabel: [NSAttributedString.Key: Any] = [
+        .font: Theme.mono(8.5, .bold),
+        .foregroundColor: Theme.background,
+        .paragraphStyle: truncating,
+    ]
+    static let noteLabelLight: [NSAttributedString.Key: Any] = [
+        .font: Theme.mono(8.5, .semibold),
+        .foregroundColor: Theme.text,
+        .paragraphStyle: truncating,
+    ]
     static let badgeLabel: [NSAttributedString.Key: Any] = [
         .font: Theme.mono(9.5, .medium),
         .foregroundColor: Theme.accent,
@@ -33,6 +44,10 @@ enum TimelineStyle {
         .font: Theme.mono(9.5),
         .foregroundColor: Theme.textDim,
     ]
+    static let rulerBar: [NSAttributedString.Key: Any] = [
+        .font: Theme.mono(9.0, .semibold),
+        .foregroundColor: Theme.accent.withAlphaComponent(0.85),
+    ]
     static let markerLabel: [NSAttributedString.Key: Any] = [
         .font: Theme.font(9.5, .semibold),
         .foregroundColor: Theme.background,
@@ -41,6 +56,15 @@ enum TimelineStyle {
         .font: Theme.font(11.5, .semibold),
         .foregroundColor: Theme.text,
         .paragraphStyle: truncating,
+    ]
+    static let trackSubtitle: [NSAttributedString.Key: Any] = [
+        .font: Theme.font(9.5, .regular),
+        .foregroundColor: Theme.textDim,
+        .paragraphStyle: truncating,
+    ]
+    static let keyLabel: [NSAttributedString.Key: Any] = [
+        .font: Theme.mono(8.0, .semibold),
+        .foregroundColor: Theme.textDim,
     ]
     static let headerButtonOff: [NSAttributedString.Key: Any] = [
         .font: Theme.font(9.5, .bold),
@@ -81,55 +105,76 @@ extension TimelineView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         Theme.background.setFill()
-        bounds.fill()
+        dirtyRect.intersection(bounds).fill()
 
         let p = project
         let rows = trackRows(for: p)
 
         // 1. Track lanes
-        ctx.saveGState()
-        ctx.clip(to: laneArea)
-        for row in rows {
-            let r = CGRect(x: Metrics.headerWidth, y: row.rect.minY, width: laneWidth, height: row.rect.height)
-            guard r.intersects(dirtyRect) else { continue }
-            let isSelectedTrack = model.selectedTrackID == row.track.id
-            let bg = isSelectedTrack ? Theme.laneSelected : (row.index % 2 == 0 ? Theme.lane : Theme.laneAlt)
-            bg.setFill()
-            r.fill()
-            drawGrid(in: r)
+        if dirtyRect.intersects(laneArea) {
             ctx.saveGState()
-            ctx.clip(to: r)
-            drawTrackLane(ctx, project: p, row: row, laneRect: r)
+            ctx.clip(to: laneArea)
+            for row in rows {
+                let r = CGRect(x: Metrics.headerWidth, y: row.rect.minY, width: laneWidth, height: row.rect.height)
+                guard r.intersects(dirtyRect) else { continue }
+                let isSelectedTrack = model.selectedTrackID == row.track.id
+                let bg = isSelectedTrack ? Theme.laneSelected : (row.index % 2 == 0 ? Theme.lane : Theme.laneAlt)
+                bg.setFill()
+                r.fill()
+                ctx.saveGState()
+                ctx.clip(to: r)
+                if row.track.isMIDI {
+                    drawPitchRows(in: r, row: row)
+                    drawMusicalGrid(in: r, project: p)
+                    drawTrackLaneNotes(ctx, project: p, row: row, laneRect: r)
+                    if row.showPianoKeys {
+                        drawPianoKeyboardStrip(ctx, row: row, laneRect: r)
+                    }
+                } else {
+                    drawGrid(in: r)
+                    drawTrackLane(ctx, project: p, row: row, laneRect: r)
+                }
+                ctx.restoreGState()
+            }
+
+            let bottom = rows.last?.rect.maxY ?? Metrics.topBarHeight
+            let endX = x(for: p.totalDuration)
+            if p.totalDuration > 0, endX < laneArea.maxX {
+                TimelineStyle.beyondEnd.setFill()
+                let startClamped = max(endX, laneArea.minX)
+                CGRect(x: startClamped, y: laneArea.minY, width: laneArea.maxX - startClamped, height: max(0, bottom - laneArea.minY)).fill()
+            }
+
+            drawSelectionRangeInLanes(ctx, rows: rows)
+            drawMarkersInLanes(ctx, project: p, bottom: bottom)
+            drawGestureFeedback(ctx, project: p, rows: rows)
+            if let line = hoverEdgeLine(project: p, rows: rows) {
+                TimelineStyle.hoverEdge.setFill()
+                line.fill()
+            }
             ctx.restoreGState()
         }
 
-        let bottom = rows.last?.rect.maxY ?? Metrics.topBarHeight
-        let endX = x(for: p.totalDuration)
-        if p.totalDuration > 0, endX < laneArea.maxX {
-            TimelineStyle.beyondEnd.setFill()
-            let startClamped = max(endX, laneArea.minX)
-            CGRect(x: startClamped, y: laneArea.minY, width: laneArea.maxX - startClamped, height: max(0, bottom - laneArea.minY)).fill()
-        }
-
-        drawSelectionRangeInLanes(ctx, rows: rows)
-        drawMarkersInLanes(ctx, project: p, bottom: bottom)
-        drawGestureFeedback(ctx, project: p, rows: rows)
-        if let line = hoverEdgeLine(project: p, rows: rows) {
-            TimelineStyle.hoverEdge.setFill()
-            line.fill()
-        }
-        ctx.restoreGState()
-
         // 2. Track headers (left column)
-        ctx.saveGState()
-        ctx.clip(to: CGRect(x: 0, y: Metrics.topBarHeight, width: Metrics.headerWidth - 1, height: laneArea.height))
-        drawTrackHeaders(ctx, project: p, rows: rows)
-        ctx.restoreGState()
+        let headerCol = CGRect(x: 0, y: Metrics.topBarHeight, width: Metrics.headerWidth - 1, height: laneArea.height)
+        if dirtyRect.intersects(headerCol) {
+            ctx.saveGState()
+            ctx.clip(to: headerCol)
+            drawTrackHeaders(ctx, project: p, rows: rows)
+            ctx.restoreGState()
+        }
 
         // 3. Overview minimap & Ruler (top bar)
-        drawOverview(ctx, project: p)
-        drawRuler(ctx, project: p)
-        drawCorner()
+        if dirtyRect.intersects(overviewArea) {
+            drawOverview(ctx, project: p)
+        }
+        if dirtyRect.intersects(rulerArea) {
+            drawRuler(ctx, project: p)
+        }
+        let cornerRect = CGRect(x: 0, y: 0, width: Metrics.headerWidth, height: Metrics.topBarHeight)
+        if dirtyRect.intersects(cornerRect) {
+            drawCorner()
+        }
 
         // 4. Hairline separators
         Theme.separator.setFill()
@@ -153,6 +198,129 @@ extension TimelineView {
             (isMajor ? Theme.gridMajor : Theme.gridMinor).setFill()
             CGRect(x: x(for: t).rounded(), y: rect.minY, width: 1, height: rect.height).fill()
             t += minor
+        }
+    }
+
+    private func drawPitchRows(in rect: CGRect, row: TrackRow) {
+        let pitchCount = max(1, row.maxPitch - row.minPitch + 1)
+        let usableTop = row.rect.minY + Metrics.blockInset
+        let usableHeight = max(12, row.rect.height - 2 * Metrics.blockInset)
+        let rowH = usableHeight / CGFloat(pitchCount)
+
+        for pitch in row.minPitch...row.maxPitch {
+            let normFromTop = CGFloat(row.maxPitch - pitch) / CGFloat(max(1, pitchCount - 1))
+            let y = usableTop + normFromTop * max(0, usableHeight - rowH)
+            if row.showPianoKeys && GeneralMIDI.isBlackKey(pitch) && rowH >= 3.5 {
+                Theme.laneBlackKey.withAlphaComponent(0.55).setFill()
+                CGRect(x: rect.minX, y: y, width: rect.width, height: rowH).fill()
+            }
+            if pitch % 12 == 0 {
+                Theme.gridOctave.setFill()
+                CGRect(x: rect.minX, y: (y + rowH).rounded(), width: rect.width, height: 1).fill()
+            }
+        }
+    }
+
+    private func drawMusicalGrid(in rect: CGRect, project p: AudioProject) {
+        let beatSec = p.secondsPerBeat
+        let barSec = p.secondsPerBar
+        let minor = max(beatSec, TimelineGrid.step(secondsPerPoint: secondsPerPoint, minPoints: 18))
+        let major = max(barSec, TimelineGrid.step(secondsPerPoint: secondsPerPoint, minPoints: 72))
+
+        var t = max(0, (time(for: rect.minX) / minor).rounded(.down) * minor)
+        let end = time(for: rect.maxX)
+        while t <= end {
+            let isMajor = abs(t / major - (t / major).rounded()) < 1e-4
+            (isMajor ? Theme.gridMajor : Theme.gridMinor).setFill()
+            CGRect(x: x(for: t).rounded(), y: rect.minY, width: 1, height: rect.height).fill()
+            t += minor
+        }
+    }
+
+    private func drawPianoKeyboardStrip(_ ctx: CGContext, row: TrackRow, laneRect: CGRect) {
+        let stripW: CGFloat = Metrics.pianoKeysWidth
+        let stripRect = CGRect(x: laneRect.minX, y: row.rect.minY, width: stripW, height: row.rect.height)
+        Theme.header.withAlphaComponent(0.92).setFill()
+        stripRect.fill()
+
+        let pitchCount = max(1, row.maxPitch - row.minPitch + 1)
+        let usableTop = row.rect.minY + Metrics.blockInset
+        let usableHeight = max(12, row.rect.height - 2 * Metrics.blockInset)
+        let keyH = max(3.0, usableHeight / CGFloat(pitchCount))
+
+        for pitch in row.minPitch...row.maxPitch {
+            let normFromTop = CGFloat(row.maxPitch - pitch) / CGFloat(max(1, pitchCount - 1))
+            let y = usableTop + normFromTop * max(0, usableHeight - keyH)
+            let isBlack = GeneralMIDI.isBlackKey(pitch)
+            if isBlack {
+                NSColor(white: 0.08, alpha: 0.95).setFill()
+                CGRect(x: stripRect.minX, y: y, width: stripW * 0.62, height: max(keyH - 0.5, 2)).fill()
+            } else {
+                NSColor(white: 1.0, alpha: 0.08).setFill()
+                CGRect(x: stripRect.minX, y: y, width: stripW - 1, height: max(keyH - 0.5, 2)).fill()
+            }
+            if pitch % 12 == 0 && keyH >= 5.5 {
+                let label = GeneralMIDI.noteName(pitch) as NSString
+                label.draw(at: CGPoint(x: stripRect.minX + 4, y: y - 1), withAttributes: TimelineStyle.keyLabel)
+            }
+        }
+
+        Theme.separator.setFill()
+        CGRect(x: stripRect.maxX - 1, y: stripRect.minY, width: 1, height: stripRect.height).fill()
+    }
+
+    private func drawTrackLaneNotes(_ ctx: CGContext, project p: AudioProject, row: TrackRow, laneRect: CGRect) {
+        let track = row.track
+        let audible = p.isTrackAudible(track)
+        let trackColor = Theme.trackColor(track.colorIndex)
+        let visibleMinX = laneRect.minX
+        let visibleMaxX = laneRect.maxX
+        let visibleEndTime = time(for: visibleMaxX)
+
+        for note in track.notes {
+            if note.start > visibleEndTime { break }
+            let rect = noteRect(note, in: row)
+            guard rect.maxX >= visibleMinX, rect.minX <= visibleMaxX else { continue }
+            let selected = model.selectedNotes.contains(note.id)
+            let hovered = hoveredNote == note.id
+            let noteAudible = audible && !note.mute
+
+            let velFactor = CGFloat(0.45 + 0.55 * note.normalizedVelocity)
+            let fillAlpha: CGFloat = noteAudible ? (selected ? 0.95 : 0.78 * velFactor) : 0.22
+            let radius = min(2.5, rect.height * 0.35)
+            let cgPath = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+
+            ctx.addPath(cgPath)
+            ctx.setFillColor(trackColor.withAlphaComponent(fillAlpha).cgColor)
+            ctx.fillPath()
+
+            if rect.height >= 6 && noteAudible {
+                ctx.setFillColor(NSColor.white.withAlphaComponent(selected ? 0.45 : 0.22).cgColor)
+                ctx.fill(CGRect(x: rect.minX + 1, y: rect.minY + 0.5, width: max(0, rect.width - 2), height: 1.2))
+            }
+
+            ctx.addPath(cgPath)
+            if selected {
+                ctx.setStrokeColor(Theme.selection.cgColor)
+                ctx.setLineWidth(1.5)
+            } else if hovered {
+                ctx.setStrokeColor(TimelineStyle.hoverEdge.cgColor)
+                ctx.setLineWidth(1.2)
+            } else {
+                ctx.setStrokeColor(trackColor.withAlphaComponent(noteAudible ? 0.95 : 0.35).cgColor)
+                ctx.setLineWidth(0.75)
+            }
+            ctx.strokePath()
+
+            if rect.width >= 24 && rect.height >= 9.5 {
+                let name = ((track.isDrum || track.channel == 9) ? GeneralMIDI.drumName(note.pitch) : GeneralMIDI.noteName(note.pitch + track.transpose)) as NSString
+                let attrs = selected ? TimelineStyle.noteLabel : TimelineStyle.noteLabelLight
+                name.draw(
+                    with: rect.insetBy(dx: 3, dy: 0),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                    attributes: attrs
+                )
+            }
         }
     }
 
@@ -379,49 +547,76 @@ extension TimelineView {
         to: CGFloat,
         color: NSColor
     ) {
+        let count = Int(to - from) + 1
+        guard count > 0 else { return }
         let mid = channelRect.midY
         let half = max(channelRect.height / 2 - 2, 1)
         let spp = secondsPerPoint
-        let peakPath = CGMutablePath()
-        let rmsPath = CGMutablePath()
+        let peakCount = peaks.count
+        let rmsCount = rms.count
 
-        func columnMetrics(_ px: CGFloat) -> (peakH: CGFloat, rmsH: CGFloat) {
-            let local = Double(px - clipRect.minX) * spp
-            let srcTime = clip.reversed ? (clip.sourceStart + clip.duration - local) : (clip.sourceStart + local)
-            let i0 = max(Int((srcTime * bps).rounded(.down)), 0)
-            let i1 = min(max(i0 + 1, Int(((srcTime + spp) * bps).rounded(.up))), peaks.count)
-            guard i0 < i1 else { return (0.5, 0.25) }
-            var pMax: Float = 0
-            var rMax: Float = 0
-            for i in i0..<i1 {
-                if peaks[i] > pMax { pMax = peaks[i] }
-                if i < rms.count, rms[i] > rMax { rMax = rms[i] }
+        // Single-pass column calculation (avoids computing peak/rms twice per pixel column)
+        var peakHeights = [CGFloat](repeating: 0.5, count: count)
+        var rmsHeights = [CGFloat](repeating: 0.25, count: count)
+
+        peaks.withUnsafeBufferPointer { peakBuf in
+            rms.withUnsafeBufferPointer { rmsBuf in
+                let pBase = peakBuf.baseAddress
+                let rBase = rmsBuf.baseAddress
+                for idx in 0..<count {
+                    let px = from + CGFloat(idx)
+                    let local = Double(px - clipRect.minX) * spp
+                    let srcTime = clip.reversed ? (clip.sourceStart + clip.duration - local) : (clip.sourceStart + local)
+                    let i0 = max(Int((srcTime * bps).rounded(.down)), 0)
+                    let i1 = min(max(i0 + 1, Int(((srcTime + spp) * bps).rounded(.up))), peakCount)
+                    guard i0 < i1 else { continue }
+
+                    var pMax: Float = 0
+                    var rMax: Float = 0
+                    let span = i1 - i0
+                    if span >= 16, let pBase {
+                        vDSP_maxv(pBase + i0, 1, &pMax, vDSP_Length(span))
+                        let rEnd = min(i1, rmsCount)
+                        if i0 < rEnd, let rBase {
+                            vDSP_maxv(rBase + i0, 1, &rMax, vDSP_Length(rEnd - i0))
+                        }
+                    } else if let pBase {
+                        for i in i0..<i1 {
+                            let pv = pBase[i]
+                            if pv > pMax { pMax = pv }
+                            if i < rmsCount, let rBase {
+                                let rv = rBase[i]
+                                if rv > rMax { rMax = rv }
+                            }
+                        }
+                    }
+
+                    var scale = linearGain
+                    if hasFade {
+                        scale *= Float(clip.fadeGain(atLocalTime: local))
+                    }
+                    let pH = max(CGFloat(min(pMax * scale, 1.0)) * half, 0.5)
+                    let rH = max(CGFloat(min(rMax * scale, 1.0)) * half, 0.3)
+                    peakHeights[idx] = pH
+                    rmsHeights[idx] = min(rH, pH)
+                }
             }
-            var scale = linearGain
-            if hasFade {
-                scale *= Float(clip.fadeGain(atLocalTime: local))
-            }
-            let pH = max(CGFloat(min(pMax * scale, 1.0)) * half, 0.5)
-            let rH = max(CGFloat(min(rMax * scale, 1.0)) * half, 0.3)
-            return (pH, min(rH, pH))
         }
 
+        let peakPath = CGMutablePath()
+        let rmsPath = CGMutablePath()
         peakPath.move(to: CGPoint(x: from, y: mid))
         rmsPath.move(to: CGPoint(x: from, y: mid))
 
-        var px = from
-        while px <= to {
-            let m = columnMetrics(px)
-            peakPath.addLine(to: CGPoint(x: px, y: mid - m.peakH))
-            rmsPath.addLine(to: CGPoint(x: px, y: mid - m.rmsH))
-            px += 1
+        for idx in 0..<count {
+            let px = from + CGFloat(idx)
+            peakPath.addLine(to: CGPoint(x: px, y: mid - peakHeights[idx]))
+            rmsPath.addLine(to: CGPoint(x: px, y: mid - rmsHeights[idx]))
         }
-        px -= 1
-        while px >= from {
-            let m = columnMetrics(px)
-            peakPath.addLine(to: CGPoint(x: px, y: mid + m.peakH))
-            rmsPath.addLine(to: CGPoint(x: px, y: mid + m.rmsH))
-            px -= 1
+        for idx in stride(from: count - 1, through: 0, by: -1) {
+            let px = from + CGFloat(idx)
+            peakPath.addLine(to: CGPoint(x: px, y: mid + peakHeights[idx]))
+            rmsPath.addLine(to: CGPoint(x: px, y: mid + rmsHeights[idx]))
         }
         peakPath.closeSubpath()
         rmsPath.closeSubpath()
@@ -576,12 +771,24 @@ extension TimelineView {
 
     private func drawMarkersInLanes(_ ctx: CGContext, project p: AudioProject, bottom: CGFloat) {
         guard bottom > laneArea.minY else { return }
-        for marker in p.markers {
+        let sorted = p.markers.sorted { $0.time < $1.time }
+        for (idx, marker) in sorted.enumerated() {
             let mx = x(for: marker.time).rounded()
-            guard mx >= laneArea.minX, mx <= laneArea.maxX else { continue }
             let color = Theme.trackColor(marker.colorIndex)
-            color.withAlphaComponent(0.45).setFill()
-            CGRect(x: mx, y: laneArea.minY, width: 1, height: bottom - laneArea.minY).fill()
+            let isSelected = model.selectedMarkerID == marker.id
+            if isSelected {
+                let nextTime = idx + 1 < sorted.count ? sorted[idx + 1].time : contentDuration
+                let xEnd = x(for: nextTime).rounded()
+                let spanX0 = max(laneArea.minX, mx)
+                let spanX1 = min(laneArea.maxX, xEnd)
+                if spanX1 > spanX0 {
+                    color.withAlphaComponent(0.06).setFill()
+                    CGRect(x: spanX0, y: laneArea.minY, width: spanX1 - spanX0, height: bottom - laneArea.minY).fill()
+                }
+            }
+            guard mx >= laneArea.minX, mx <= laneArea.maxX else { continue }
+            (isSelected ? Theme.selection.withAlphaComponent(0.85) : color.withAlphaComponent(0.45)).setFill()
+            CGRect(x: mx, y: laneArea.minY, width: isSelected ? 1.5 : 1, height: bottom - laneArea.minY).fill()
         }
     }
 
@@ -594,7 +801,16 @@ extension TimelineView {
         for row in rows {
             let r = CGRect(x: 0, y: row.rect.minY, width: Metrics.headerWidth - 1, height: row.rect.height)
             let isSelected = model.selectedTrackID == row.track.id
-            if isSelected {
+            let isDraggingThisTrack: Bool
+            if case .moveTrack(let draggedID, _) = drag {
+                isDraggingThisTrack = draggedID == row.track.id
+            } else {
+                isDraggingThisTrack = false
+            }
+            if isDraggingThisTrack {
+                Theme.selection.withAlphaComponent(0.18).setFill()
+                r.fill()
+            } else if isSelected {
                 Theme.laneSelected.withAlphaComponent(0.75).setFill()
                 r.fill()
             }
@@ -602,25 +818,60 @@ extension TimelineView {
             color.setFill()
             CGRect(x: 0, y: r.minY, width: 3.5, height: r.height).fill()
 
-            let controls = headerControlRects(in: row.rect)
-            let titleWidth = max(20, controls.mute.minX - 16)
+            // Subtle 6-dot drag grip when multiple tracks can be reordered
+            if p.tracks.count > 1 {
+                let gripColor = isDraggingThisTrack ? Theme.selection : Theme.textFaint.withAlphaComponent(0.55)
+                gripColor.setFill()
+                let gx: CGFloat = 6.5
+                let gy = r.minY + 10
+                for dy in stride(from: CGFloat(0), through: 6, by: 3) {
+                    CGRect(x: gx, y: gy + dy, width: 1.5, height: 1.5).fill()
+                    CGRect(x: gx + 2.5, y: gy + dy, width: 1.5, height: 1.5).fill()
+                }
+            }
+
+            let titleX: CGFloat = p.tracks.count > 1 ? 13.5 : 11
+            let isMIDI = row.track.isMIDI
+            let controls = headerControlRects(in: row.rect, isMIDI: isMIDI)
+            let titleWidth = max(20, controls.mute.minX - titleX - 4)
             (row.track.name as NSString).draw(
-                with: CGRect(x: 11, y: r.minY + 8, width: titleWidth, height: 16),
+                with: CGRect(x: titleX, y: r.minY + 7, width: titleWidth, height: 16),
                 options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                 attributes: TimelineStyle.trackTitle
             )
+
+            if isMIDI {
+                let subText = "\(row.track.instrumentLabel) · Ch \(row.track.channel + 1)" as NSString
+                subText.draw(
+                    with: CGRect(x: 11, y: r.minY + 24, width: Metrics.headerWidth - 18, height: 14),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                    attributes: TimelineStyle.trackSubtitle
+                )
+            }
 
             // Mute button (M)
             drawHeaderButton(rect: controls.mute, label: "M", active: row.track.mute, tint: Theme.muteColor)
             // Solo button (S)
             drawHeaderButton(rect: controls.solo, label: "S", active: row.track.solo, tint: Theme.soloColor)
-            // Stereo L/R split button
-            drawHeaderButton(rect: controls.stereo, label: "⊶", active: row.track.stereoSplit, tint: Theme.snapGuide)
+            // Stereo L/R split button or Piano-Roll button
+            if isMIDI {
+                drawHeaderButton(rect: controls.third, label: "🎹", active: row.track.pianoRollExpanded, tint: Theme.snapGuide)
+            } else {
+                drawHeaderButton(rect: controls.third, label: "⊶", active: row.track.stereoSplit, tint: Theme.snapGuide)
+            }
 
             // Gain & Pan pills
-            if r.height >= 54 {
+            let minHForPills: CGFloat = isMIDI ? 66 : 54
+            if r.height >= minHForPills {
                 drawValuePill(rect: controls.gain, text: TimeFormat.decibels(row.track.gainDB))
                 drawValuePill(rect: controls.pan, text: TimeFormat.pan(row.track.pan))
+            }
+
+            if isDraggingThisTrack {
+                Theme.selection.withAlphaComponent(0.85).setStroke()
+                let border = NSBezierPath(rect: r.insetBy(dx: 0.75, dy: 0.75))
+                border.lineWidth = 1.5
+                border.stroke()
             }
         }
     }
@@ -659,55 +910,111 @@ extension TimelineView {
         ctx.saveGState()
         ctx.clip(to: area)
 
-        // Draw combined miniature waveform across the whole project duration
-        let fromX = area.minX + Metrics.leadIn
-        let toX = area.maxX - Metrics.leadIn
-        let spanW = max(toX - fromX, 1)
-        let midY = area.midY
-        let halfH = area.height / 2 - 3
         let dur = contentDuration
+        let allClips = p.allClips
+        let waveReadyCount = allClips.reduce(0) { acc, item in
+            let hasWave = model.waveforms.envelope(for: model.resolvedURL(for: item.clip.path))?.peaks.isEmpty == false
+            return acc + (hasWave ? 1 : 0)
+        }
+        let cacheKey = OverviewCacheKey(
+            changeCount: model.store.changeCount,
+            width: Int(area.width.rounded()),
+            height: Int(area.height.rounded()),
+            clipCount: allClips.count,
+            noteCount: p.noteCount,
+            waveReadyCount: waveReadyCount
+        )
 
-        if let firstClip = p.allClips.first?.clip,
-           let wave = model.waveforms.envelope(for: model.resolvedURL(for: firstClip.path)),
-           !wave.peaks.isEmpty {
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: fromX, y: midY))
-            var px = fromX
-            while px <= toX {
-                let t0 = Double((px - fromX) / spanW) * dur
-                let t1 = Double((px + 1 - fromX) / spanW) * dur
-                var peak: Float = 0
-                for (_, _, c) in p.allClips where !c.mute && c.end >= t0 && c.offset <= t1 {
-                    if let w = model.waveforms.envelope(for: model.resolvedURL(for: c.path)) {
-                        let v = w.values(at: c.sourceStart + max(0, t0 - c.offset), window: max(0.01, t1 - t0))
-                        let scaled = v.peak * Float(c.amplitude(atTimelineTime: max(c.offset, min(t0, c.end))))
-                        if scaled > peak { peak = scaled }
+        if preview != nil || cachedOverviewKey != cacheKey {
+            let fromX = area.minX + Metrics.leadIn
+            let toX = area.maxX - Metrics.leadIn
+            let spanW = max(toX - fromX, 1)
+            let midY = area.midY
+            let halfH = area.height / 2 - 3
+
+            // 1. Build combined miniature waveform path in a single pass
+            var builtWavePath: CGPath?
+            if waveReadyCount > 0 {
+                let path = CGMutablePath()
+                path.move(to: CGPoint(x: fromX, y: midY))
+                var coords: [(x: CGFloat, h: CGFloat)] = []
+                coords.reserveCapacity(Int(spanW / 2) + 2)
+                var px = fromX
+                while px <= toX {
+                    let t0 = Double((px - fromX) / spanW) * dur
+                    let t1 = Double((px + 1 - fromX) / spanW) * dur
+                    var peak: Float = 0
+                    for (_, _, c) in allClips where !c.mute && c.end >= t0 && c.offset <= t1 {
+                        if let w = model.waveforms.envelope(for: model.resolvedURL(for: c.path)) {
+                            let v = w.values(at: c.sourceStart + max(0, t0 - c.offset), window: max(0.01, t1 - t0))
+                            let scaled = v.peak * Float(c.amplitude(atTimelineTime: max(c.offset, min(t0, c.end))))
+                            if scaled > peak { peak = scaled }
+                        }
                     }
+                    let h = max(CGFloat(min(peak, 1)) * halfH, 0.5)
+                    coords.append((px, h))
+                    path.addLine(to: CGPoint(x: px, y: midY - h))
+                    px += 2
                 }
-                let h = max(CGFloat(min(peak, 1)) * halfH, 0.5)
-                path.addLine(to: CGPoint(x: px, y: midY - h))
-                px += 2
-            }
-            px -= 2
-            while px >= fromX {
-                let t0 = Double((px - fromX) / spanW) * dur
-                let t1 = Double((px + 1 - fromX) / spanW) * dur
-                var peak: Float = 0
-                for (_, _, c) in p.allClips where !c.mute && c.end >= t0 && c.offset <= t1 {
-                    if let w = model.waveforms.envelope(for: model.resolvedURL(for: c.path)) {
-                        let v = w.values(at: c.sourceStart + max(0, t0 - c.offset), window: max(0.01, t1 - t0))
-                        let scaled = v.peak * Float(c.amplitude(atTimelineTime: max(c.offset, min(t0, c.end))))
-                        if scaled > peak { peak = scaled }
-                    }
+                for item in coords.reversed() {
+                    path.addLine(to: CGPoint(x: item.x, y: midY + item.h))
                 }
-                let h = max(CGFloat(min(peak, 1)) * halfH, 0.5)
-                path.addLine(to: CGPoint(x: px, y: midY + h))
-                px -= 2
+                path.closeSubpath()
+                builtWavePath = path
             }
-            path.closeSubpath()
-            ctx.addPath(path)
-            ctx.setFillColor(Theme.accent.withAlphaComponent(0.45).cgColor)
-            ctx.fillPath()
+
+            // 2. Build batched MIDI note rects by track color
+            var builtBatches: [(colorIndex: Int, rects: [CGRect])] = []
+            let allNotes = p.allNotes
+            if !allNotes.isEmpty {
+                var minP = 127
+                var maxP = 0
+                for (_, _, n) in allNotes {
+                    if n.pitch < minP { minP = n.pitch }
+                    if n.pitch > maxP { maxP = n.pitch }
+                }
+                maxP = max(minP + 12, maxP)
+                let pSpan = CGFloat(max(1, maxP - minP))
+                let topPad: CGFloat = 4
+                let usableH = max(4, area.height - 2 * topPad)
+
+                var byColor: [Int: [CGRect]] = [:]
+                for (ti, _, n) in allNotes where !n.mute {
+                    let cIdx = p.tracks[ti].colorIndex
+                    let x0 = overviewX(for: n.start)
+                    let x1 = max(x0 + 1.5, overviewX(for: n.end))
+                    let norm = CGFloat(maxP - n.pitch) / pSpan
+                    let ny = area.minY + topPad + norm * (usableH - 2)
+                    byColor[cIdx, default: []].append(CGRect(x: x0, y: ny, width: x1 - x0, height: 2.0))
+                }
+                builtBatches = byColor.keys.sorted().map { ($0, byColor[$0]!) }
+            }
+
+            if preview == nil {
+                cachedOverviewKey = cacheKey
+                cachedOverviewWavePath = builtWavePath
+                cachedOverviewNoteBatches = builtBatches
+            }
+
+            if let wavePath = builtWavePath {
+                ctx.addPath(wavePath)
+                ctx.setFillColor(Theme.accent.withAlphaComponent(0.45).cgColor)
+                ctx.fillPath()
+            }
+            for batch in builtBatches {
+                ctx.setFillColor(Theme.trackColor(batch.colorIndex).withAlphaComponent(0.78).cgColor)
+                ctx.fill(batch.rects)
+            }
+        } else {
+            if let wavePath = cachedOverviewWavePath {
+                ctx.addPath(wavePath)
+                ctx.setFillColor(Theme.accent.withAlphaComponent(0.45).cgColor)
+                ctx.fillPath()
+            }
+            for batch in cachedOverviewNoteBatches {
+                ctx.setFillColor(Theme.trackColor(batch.colorIndex).withAlphaComponent(0.78).cgColor)
+                ctx.fill(batch.rects)
+            }
         }
 
         // Selection range on overview
@@ -731,11 +1038,6 @@ extension TimelineView {
         vpPath.lineWidth = 1
         vpPath.stroke()
 
-        // Playhead line in overview
-        let playX = overviewX(for: model.playhead).rounded()
-        Theme.playhead.setFill()
-        CGRect(x: playX, y: area.minY, width: 1.5, height: area.height).fill()
-
         ctx.restoreGState()
     }
 
@@ -756,7 +1058,15 @@ extension TimelineView {
             (isMajor ? Theme.textFaint : Theme.gridMajor).setFill()
             CGRect(x: px, y: ruler.maxY - (isMajor ? 8 : 4), width: 1, height: isMajor ? 8 : 4).fill()
             if isMajor {
-                (TimeFormat.rulerLabel(t, step: major) as NSString).draw(
+                let baseLabel = TimeFormat.rulerLabel(t, step: major)
+                let fullLabel: NSString
+                if p.hasMIDITracks {
+                    let barNum = Int((t / max(0.1, p.secondsPerBar)).rounded()) + 1
+                    fullLabel = "\(baseLabel) · M\(barNum)" as NSString
+                } else {
+                    fullLabel = baseLabel as NSString
+                }
+                fullLabel.draw(
                     at: CGPoint(x: px + 4, y: ruler.minY + 3),
                     withAttributes: TimelineStyle.ruler
                 )
@@ -781,16 +1091,33 @@ extension TimelineView {
         }
 
         // Markers in ruler
-        for marker in p.markers {
+        let sortedMarkers = p.markers.sorted { $0.time < $1.time }
+        for (idx, marker) in sortedMarkers.enumerated() {
             let mx = x(for: marker.time).rounded()
-            guard mx >= ruler.minX - 40, mx <= ruler.maxX + 40 else { continue }
             let color = Theme.trackColor(marker.colorIndex)
             let selected = model.selectedMarkerID == marker.id
+            if selected {
+                let nextTime = idx + 1 < sortedMarkers.count ? sortedMarkers[idx + 1].time : contentDuration
+                let nx = x(for: nextTime).rounded()
+                let zx0 = max(ruler.minX, mx)
+                let zx1 = min(ruler.maxX, nx)
+                if zx1 > zx0 {
+                    color.withAlphaComponent(0.18).setFill()
+                    CGRect(x: zx0, y: ruler.minY, width: zx1 - zx0, height: ruler.height).fill()
+                }
+            }
+            guard mx >= ruler.minX - 60, mx <= ruler.maxX + 40 else { continue }
             let label = marker.name as NSString
             let labelW = min(ceil(label.size(withAttributes: TimelineStyle.markerLabel).width) + 8, 90)
             let pill = CGRect(x: mx, y: ruler.minY + 3, width: labelW, height: 13)
             (selected ? Theme.selection : color).setFill()
-            NSBezierPath(roundedRect: pill, xRadius: 2.5, yRadius: 2.5).fill()
+            let pillPath = NSBezierPath(roundedRect: pill, xRadius: 2.5, yRadius: 2.5)
+            pillPath.fill()
+            if selected {
+                NSColor.white.withAlphaComponent(0.9).setStroke()
+                pillPath.lineWidth = 1.0
+                pillPath.stroke()
+            }
             label.draw(
                 with: pill.insetBy(dx: 4, dy: 0.5),
                 options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
@@ -802,9 +1129,15 @@ extension TimelineView {
     }
 
     private func drawCorner() {
+        let p = project
         Theme.overview.setFill()
         CGRect(x: 0, y: 0, width: Metrics.headerWidth - 1, height: Metrics.overviewHeight - 1).fill()
-        ("APERÇU GLOBAL" as NSString).draw(at: CGPoint(x: 12, y: 7), withAttributes: TimelineStyle.cornerDim)
+        if p.hasMIDITracks {
+            let info = "\(Int(p.bpm.rounded())) BPM · \(p.timeSignatureNumerator)/\(p.timeSignatureDenominator)" as NSString
+            info.draw(at: CGPoint(x: 12, y: 7), withAttributes: TimelineStyle.rulerBar)
+        } else {
+            ("APERÇU GLOBAL" as NSString).draw(at: CGPoint(x: 12, y: 7), withAttributes: TimelineStyle.cornerDim)
+        }
 
         Theme.ruler.setFill()
         CGRect(x: 0, y: Metrics.overviewHeight, width: Metrics.headerWidth - 1, height: Metrics.rulerHeight - 1).fill()
@@ -812,7 +1145,7 @@ extension TimelineView {
             at: CGPoint(x: 12, y: Metrics.overviewHeight + 6),
             withAttributes: model.snapping ? TimelineStyle.cornerOn : TimelineStyle.cornerDim
         )
-        let trackCountText = "\(project.tracks.count) PISTE\(project.tracks.count > 1 ? "S" : "")" as NSString
+        let trackCountText = "\(p.tracks.count) PISTE\(p.tracks.count > 1 ? "S" : "")" as NSString
         trackCountText.draw(at: CGPoint(x: 48, y: Metrics.overviewHeight + 6), withAttributes: TimelineStyle.cornerDim)
     }
 
@@ -825,6 +1158,13 @@ extension TimelineView {
             guard let (ti, ci) = p.clipLocation(of: clipID),
                   let row = rows.first(where: { $0.index == ti }) else { return nil }
             let block = clipRect(p.tracks[ti].clips[ci], in: row.rect)
+            let ex = (edge == .start ? block.minX : block.maxX).rounded()
+            let w = TimelineStyle.hoverEdgeWidth
+            return CGRect(x: edge == .start ? ex : ex - w, y: block.minY, width: w, height: block.height)
+        case .noteEdge(let noteID, let edge):
+            guard let (ti, ni) = p.noteLocation(of: noteID),
+                  let row = rows.first(where: { $0.index == ti }) else { return nil }
+            let block = noteRect(p.tracks[ti].notes[ni], in: row)
             let ex = (edge == .start ? block.minX : block.maxX).rounded()
             let w = TimelineStyle.hoverEdgeWidth
             return CGRect(x: edge == .start ? ex : ex - w, y: block.minY, width: w, height: block.height)

@@ -21,10 +21,21 @@ public let simpleAudioToolDefinitions: [[String: Any]] = [
         "description": """
         Applies an atomic batch of editing operations to the active SimpleAudio document as ONE undo step.
         Operations (indices are 0-based track/clip indices or UUID strings):
-        - {"op":"track.add", "name"?:s, "at"?:i}
+        - {"op":"track.add", "name"?:s, "at"?:i, "kind"?:"audio"|"midi", "program"?:i, "channel"?:i, "isDrum"?:b}
         - {"op":"track.remove", "track":i|uuid}
         - {"op":"track.duplicate", "track":i|uuid}
-        - {"op":"track.set", "track":i|uuid, "name"?:s, "gainDB"?:n, "pan"?:n, "mute"?:b, "solo"?:b, "locked"?:b, "stereoSplit"?:b}
+        - {"op":"track.move", "track":i|uuid, "to"?:i, "delta"?:i}
+        - {"op":"track.set", "track":i|uuid, "name"?:s, "gainDB"?:n, "pan"?:n, "mute"?:b, "solo"?:b, "locked"?:b, "stereoSplit"?:b, "program"?:i, "channel"?:i, "transpose"?:i, "pianoRollExpanded"?:b}
+        - {"op":"track.bounceToAudio", "track":i|uuid, "replace"?:b}
+        - {"op":"note.add", "track"?:i|uuid, "pitch":i, "start":n, "duration"?:n, "velocity"?:i}
+        - {"op":"note.move", "note":uuid, "start"?:n, "pitch"?:i, "track"?:i|uuid}
+        - {"op":"note.trim", "note":uuid, "start"?:n, "duration"?:n}
+        - {"op":"note.velocity", "note":uuid, "velocity":i}
+        - {"op":"note.pitch", "note":uuid, "pitch":i}
+        - {"op":"note.remove", "notes":[uuid], "ripple"?:b}
+        - {"op":"note.quantize", "notes"?:[uuid], "track"?:i|uuid, "subdivisionBeats"?:n}
+        - {"op":"note.transpose", "notes"?:[uuid], "track"?:i|uuid, "semitones":i}
+        - {"op":"tempo.set", "bpm"?:n, "numerator"?:i, "denominator"?:i}
         - {"op":"clip.add", "track"?:i|uuid, "path":s, "offset"?:n, "sourceStart"?:n, "duration"?:n, "gainDB"?:n, "fadeIn"?:n, "fadeOut"?:n, "fadeShape"?:s}
         - {"op":"clip.trim", "clip":uuid, "start"?:n, "end"?:n}
         - {"op":"clip.move", "clip":uuid, "offset":n, "track"?:i|uuid}
@@ -95,12 +106,12 @@ public let simpleAudioToolDefinitions: [[String: Any]] = [
     ],
     [
         "name": "simpleaudio_export",
-        "description": "Exports the project (or a time range) to an audio file in wav, aiff, caf, m4a, alac, flac, or mp3 format.",
+        "description": "Exports the project (or a time range) to an audio or MIDI file in wav, aiff, caf, m4a, alac, flac, mp3, or mid format.",
         "inputSchema": [
             "type": "object",
             "properties": [
                 "path": ["type": "string", "description": "Destination file path"],
-                "format": ["type": "string", "enum": ["wav", "aiff", "caf", "m4a", "alac", "flac", "mp3"]],
+                "format": ["type": "string", "enum": ["wav", "aiff", "caf", "m4a", "alac", "flac", "mp3", "mid"]],
                 "sampleRate": ["type": "number", "description": "44100, 48000, or 96000 (default 48000)"],
                 "bitDepth": ["type": "integer", "description": "16, 24, or 32 (default 24)"],
                 "bitRateKbps": ["type": "integer", "description": "128, 192, 256, or 320 for m4a/mp3 (default 256)"],

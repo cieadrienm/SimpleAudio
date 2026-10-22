@@ -19,6 +19,10 @@ struct StatusBar: View {
                 Text("Plage : \(TimeFormat.timecode(range.lowerBound)) → \(TimeFormat.timecode(range.upperBound)) (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(Color(nsColor: Theme.rangeSelection))
+            } else if let note = model.primarySelectedNote {
+                Text("Note \(GeneralMIDI.noteName(note.pitch)) · vél \(note.velocity) · \(TimeFormat.shortDuration(note.duration))")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color(nsColor: Theme.textDim))
             } else if let clip = model.primarySelectedClip {
                 Text("\(clip.name) · \(TimeFormat.shortDuration(clip.duration)) · \(TimeFormat.decibels(clip.gainDB))")
                     .font(.system(size: 10.5, design: .monospaced))
@@ -27,9 +31,15 @@ struct StatusBar: View {
 
             Divider().frame(height: 12)
 
-            Text("\(project.tracks.count) piste\(project.tracks.count > 1 ? "s" : "") · \(project.allClips.count) clip\(project.allClips.count > 1 ? "s" : "") · \(Int(project.sampleRate)) Hz")
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(Color(nsColor: Theme.textFaint))
+            if project.noteCount > 0 {
+                Text("\(project.tracks.count) piste\(project.tracks.count > 1 ? "s" : "") · \(project.allClips.count) clip\(project.allClips.count > 1 ? "s" : "") · \(project.noteCount) note\(project.noteCount > 1 ? "s" : "") · \(Int(project.bpm)) BPM")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color(nsColor: Theme.textFaint))
+            } else {
+                Text("\(project.tracks.count) piste\(project.tracks.count > 1 ? "s" : "") · \(project.allClips.count) clip\(project.allClips.count > 1 ? "s" : "") · \(Int(project.sampleRate)) Hz")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color(nsColor: Theme.textFaint))
+            }
 
             Divider().frame(height: 12)
 

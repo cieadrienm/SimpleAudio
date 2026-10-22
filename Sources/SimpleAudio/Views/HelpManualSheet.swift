@@ -158,23 +158,23 @@ struct HelpManualSheet: View {
 
             numberedStep(
                 number: "1",
-                title: "Ouvrir un fichier audio ou importer plusieurs pistes",
-                body: "Glissez-déposez un ou plusieurs fichiers audio (WAV, AIFF, M4A, MP3, FLAC, CAF) directement depuis le Finder, utilisez Ouvrir (⌘O) pour éditer un fichier immédiatement, ou Importer (⌘I) pour ajouter des pistes."
+                title: "Ouvrir ou combiner des pistes Audio et MIDI",
+                body: "Glissez-déposez des fichiers audio (WAV, AIFF, M4A, MP3, FLAC, CAF), des fichiers MIDI (.mid) ou des banques SoundFont (.sf2 / .dls) directement depuis le Finder. Ajoutez à tout moment une piste Audio (+ Audio) ou une piste MIDI (+ MIDI)."
             )
             numberedStep(
                 number: "2",
-                title: "Naviguer, écouter et zoomer avec Z",
-                body: "Lancez la lecture avec Espace. Appuyez sur Z pour basculer instantanément entre la vue d’ensemble du projet entier et un zoom centré sur la tête de lecture (ou sur la plage sélectionnée). Utilisez la minimap en haut pour vous déplacer d’un geste."
+                title: "Naviguer en 120 Hz et zoomer avec Z (3 niveaux sur marqueur)",
+                body: "Lancez la lecture avec Espace. Appuyez sur Z pour basculer entre la vue d’ensemble et le zoom sur le curseur — ou, lorsqu'un marqueur est sélectionné, cycler entre 3 niveaux : 15 s autour du marqueur → section jusqu'au marqueur suivant → piste entière."
             )
             numberedStep(
                 number: "3",
-                title: "Couper, copier-coller et ajuster les fondus",
-                body: "Scindez un clip avec B ou S, rognez ses extrémités en les glissant, ou tirez les poignées rondes en haut à gauche / à droite d’un clip pour dessiner un fondu d’entrée ou de sortie. Sélectionnez une plage temporelle (I / O ou ⇧-glisser) pour copier (⌘C), couper (⌘X), coller (⌘V) ou rogner (⌘T)."
+                title: "Éditer les formes d'onde et le Piano-Roll MIDI (P)",
+                body: "Scindez les clips ou notes avec B, ajustez les fondus sur les clips audio, ou dépliez le Piano-Roll d'une piste MIDI (bouton 🎹 ou touche P) pour dessiner des notes (double-clic), les déplacer, les quantifier (Q) ou les transposer (↑/↓)."
             )
             numberedStep(
                 number: "4",
-                title: "Normaliser et exporter (⌘E)",
-                body: "Normalisez un clip à -0.1 dBFS (⇧⌘N) ou ouvrez la feuille d’export (⌘E) pour exporter le mixage ou les pistes séparées (stems) en WAV, AIFF, CAF, M4A, ALAC, FLAC ou MP3 avec normalisation Peak ou EBU R128 (-14 LUFS)."
+                title: "Convertir MIDI → Audio et exporter (⌘E)",
+                body: "Convertissez n'importe quelle piste MIDI en piste Audio WAV d'un clic dans l'inspecteur ou au clic droit, ou exportez le mixage hybride Audio + MIDI en WAV, AIFF, CAF, M4A, ALAC, FLAC, MP3 ou .mid."
             )
 
             calloutBox(

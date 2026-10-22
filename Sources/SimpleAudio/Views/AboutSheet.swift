@@ -23,26 +23,26 @@ struct AboutSheet: View {
         FeatureCard(
             icon: "waveform.path.ecg",
             tint: Theme.accent,
-            title: "Formes d’onde haute définition",
-            detail: "Enveloppes Peak + RMS multi-résolution accélérées par vDSP, affichage stéréo L/R séparé et minimap globale interactive."
+            title: "Formes d’onde & Piano-Roll MIDI",
+            detail: "Timeline hybride Audio + MIDI 120 Hz ProMotion : enveloppes Peak + RMS accélérées vDSP, Piano-Roll interactif dépliable (P) et clavier d'écoute."
         ),
         FeatureCard(
             icon: "scissors",
             tint: Theme.rangeSelection,
-            title: "Montage multipiste & Fondus",
-            detail: "Scinder (B / S), sélection de plage In/Out, copier-coller, glissement source (⌥-glisser) et 4 courbes de fondu (Cosinus, Linéaire, Expo, Log)."
+            title: "Montage, Fondus & Édition MIDI",
+            detail: "Scinder (B), plage In/Out, 4 courbes de fondu, quantification MIDI (Q), transposition (↑/↓) et conversion de piste MIDI en Audio WAV."
         ),
         FeatureCard(
-            icon: "slider.horizontal.below.waveform",
+            icon: "pianokeys",
             tint: Theme.meterLow,
-            title: "Mixage temps réel & Normalisation",
-            detail: "Moteur AVAudioEngine basse latence, vu-mètres crête stéréo, élagage des silences et normalisation Peak (-0.1 dBFS) ou EBU R128 (-14 LUFS)."
+            title: "Synthèse GM 128, SoundFont & DSP",
+            detail: "Moteur hybride AVAudioEngine + Apple DLSMusicDevice (128 instruments GM, batterie Ch.10, banques .sf2/.dls) et normalisation Peak / -14 LUFS."
         ),
         FeatureCard(
             icon: "antenna.radiowaves.left.and.right",
             tint: Theme.muteColor,
-            title: "Export multi-format, OSC & MCP",
-            detail: "Export WAV, AIFF, CAF, M4A, ALAC, FLAC, MP3 et stems par piste. Pilotage complet via OSC (:9110), API HTTP (/v1) et serveur MCP."
+            title: "Export Audio/MIDI, OSC & MCP",
+            detail: "Export WAV, AIFF, CAF, M4A, ALAC, FLAC, MP3, .mid et stems. Pilotage complet via OSC (:9110), API HTTP (/v1) et serveur MCP."
         ),
     ]
 
@@ -58,7 +58,7 @@ struct AboutSheet: View {
                             .foregroundStyle(Theme.text.swiftUI)
                         versionBadge
                     }
-                    Text("Éditeur audio multipiste natif ultra-léger — montage, fondus, export & OSC/MCP")
+                    Text("Éditeur Audio & MIDI multipiste natif ultra-léger — formes d'onde, Piano-Roll, fondus, export & OSC/MCP")
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Theme.textDim.swiftUI)
                     HStack(spacing: 8) {

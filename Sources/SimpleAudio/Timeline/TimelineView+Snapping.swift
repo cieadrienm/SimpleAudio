@@ -18,12 +18,16 @@ enum TimelineGrid {
 }
 
 extension TimelineView {
-    func snapTargets(in proj: AudioProject, excludingClip clipID: UUID? = nil) -> [Double] {
+    func snapTargets(in proj: AudioProject, excludingClip clipID: UUID? = nil, excludingNote noteID: UUID? = nil) -> [Double] {
         var targets: [Double] = [0, model.playhead]
         for track in proj.tracks {
             for clip in track.clips where clip.id != clipID {
                 targets.append(clip.offset)
                 targets.append(clip.end)
+            }
+            for note in track.notes where note.id != noteID {
+                targets.append(note.start)
+                targets.append(note.end)
             }
         }
         for marker in proj.markers {
@@ -32,6 +36,18 @@ extension TimelineView {
         if let range = model.selectionRange {
             targets.append(range.lowerBound)
             targets.append(range.upperBound)
+        }
+        if proj.hasMIDITracks {
+            let subBeat = max(0.05, proj.secondsPerBeat * 0.25)
+            let visibleStart = max(0, (scrollOffset / subBeat).rounded(.down) * subBeat)
+            let visibleEnd = scrollOffset + usableLaneWidth * secondsPerPoint
+            var g = visibleStart
+            var count = 0
+            while g <= visibleEnd && count < 400 {
+                targets.append(g)
+                g += subBeat
+                count += 1
+            }
         }
         return targets
     }

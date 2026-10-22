@@ -232,4 +232,195 @@ public enum SyntheticAudio {
             options: AudioExportOptions(format: .wav, sampleRate: sampleRate, bitDepth: 24, channels: 2)
         )
     }
+
+    /// Generates a rich multitrack MIDI demo project (`Grand Piano`, `Basse Électrique`, `Ensemble de Cordes`, `Batterie GM`).
+    public static func makeMIDIDemoProject() -> AudioProject {
+        let bpm = 120.0
+        let beat = 60.0 / bpm
+
+        var pianoNotes: [MIDINote] = []
+        let progression: [[Int]] = [
+            [57, 60, 64, 67],
+            [53, 57, 60, 64],
+            [48, 55, 60, 64],
+            [55, 59, 62, 67],
+            [57, 60, 64, 69],
+            [53, 57, 60, 65],
+            [48, 52, 55, 60],
+            [55, 59, 62, 65],
+        ]
+        let melodyPatterns: [[(subBeat: Double, dur: Double, pitch: Int, vel: Int)]] = [
+            [(0.0, 0.75, 72, 102), (0.75, 0.75, 76, 96), (1.5, 1.0, 79, 108), (2.5, 0.75, 76, 92), (3.25, 0.75, 72, 88)],
+            [(0.0, 1.0, 69, 100), (1.0, 0.5, 72, 94), (1.5, 1.0, 76, 105), (2.5, 1.5, 74, 96)],
+            [(0.0, 0.75, 72, 104), (0.75, 0.75, 74, 96), (1.5, 1.0, 76, 110), (2.5, 0.75, 79, 102), (3.25, 0.75, 76, 94)],
+            [(0.0, 1.5, 74, 104), (1.5, 0.5, 72, 92), (2.0, 1.0, 71, 98), (3.0, 1.0, 67, 90)],
+        ]
+
+        for (barIdx, chord) in progression.enumerated() {
+            let barStart = Double(barIdx) * 4.0 * beat
+            for p in chord {
+                pianoNotes.append(MIDINote(pitch: p, start: barStart, duration: 1.85 * beat, velocity: 78, channel: 0))
+                pianoNotes.append(MIDINote(pitch: p, start: barStart + 2.0 * beat, duration: 1.85 * beat, velocity: 74, channel: 0))
+            }
+            let motif = melodyPatterns[barIdx % melodyPatterns.count]
+            for m in motif {
+                pianoNotes.append(
+                    MIDINote(
+                        pitch: m.pitch,
+                        start: barStart + m.subBeat * beat,
+                        duration: m.dur * beat * 0.92,
+                        velocity: m.vel,
+                        channel: 0
+                    )
+                )
+            }
+        }
+
+        var bassNotes: [MIDINote] = []
+        let bassRoots = [45, 41, 36, 43, 45, 41, 36, 43]
+        for (barIdx, root) in bassRoots.enumerated() {
+            let barStart = Double(barIdx) * 4.0 * beat
+            let fifth = root + 7
+            let octave = root + 12
+            let pattern: [(Double, Double, Int, Int)] = [
+                (0.0, 0.9, root, 106),
+                (1.0, 0.45, root, 92),
+                (1.5, 0.9, fifth, 98),
+                (2.5, 0.7, octave, 102),
+                (3.25, 0.7, fifth, 94),
+            ]
+            for (b, d, p, v) in pattern {
+                bassNotes.append(MIDINote(pitch: p, start: barStart + b * beat, duration: d * beat, velocity: v, channel: 1))
+            }
+        }
+
+        var stringNotes: [MIDINote] = []
+        let stringVoicings: [[Int]] = [
+            [64, 69, 72], [60, 65, 69], [60, 64, 67], [59, 62, 67],
+            [64, 69, 76], [60, 65, 72], [60, 64, 72], [59, 62, 71],
+        ]
+        for (barIdx, voicing) in stringVoicings.enumerated() {
+            let barStart = Double(barIdx) * 4.0 * beat
+            for p in voicing {
+                stringNotes.append(MIDINote(pitch: p, start: barStart, duration: 3.85 * beat, velocity: 76, channel: 2))
+            }
+        }
+
+        var drumNotes: [MIDINote] = []
+        for barIdx in 0..<8 {
+            let barStart = Double(barIdx) * 4.0 * beat
+            for kb in [0.0, 1.5, 2.0] {
+                drumNotes.append(MIDINote(pitch: 36, start: barStart + kb * beat, duration: 0.22, velocity: 112, channel: 9))
+            }
+            for sb in [1.0, 3.0] {
+                drumNotes.append(MIDINote(pitch: 38, start: barStart + sb * beat, duration: 0.20, velocity: 104, channel: 9))
+            }
+            for step in 0..<8 {
+                let hb = Double(step) * 0.5
+                let isOpen = (step == 7)
+                drumNotes.append(
+                    MIDINote(
+                        pitch: isOpen ? 46 : 42,
+                        start: barStart + hb * beat,
+                        duration: isOpen ? 0.24 : 0.12,
+                        velocity: step % 2 == 0 ? 88 : 68,
+                        channel: 9
+                    )
+                )
+            }
+        }
+
+        let tracks: [AudioTrack] = [
+            AudioTrack(
+                name: "Grand Piano",
+                colorIndex: 0,
+                gainDB: 0.0,
+                pan: -0.15,
+                kind: .midi,
+                channel: 0,
+                program: 0,
+                isDrum: false,
+                pianoRollExpanded: true,
+                notes: pianoNotes
+            ),
+            AudioTrack(
+                name: "Basse Électrique",
+                colorIndex: 1,
+                gainDB: -1.0,
+                pan: 0.0,
+                kind: .midi,
+                channel: 1,
+                program: 33,
+                isDrum: false,
+                notes: bassNotes
+            ),
+            AudioTrack(
+                name: "Ensemble de Cordes",
+                colorIndex: 4,
+                gainDB: -2.5,
+                pan: 0.22,
+                kind: .midi,
+                channel: 2,
+                program: 48,
+                isDrum: false,
+                notes: stringNotes
+            ),
+            AudioTrack(
+                name: "Batterie GM",
+                colorIndex: 2,
+                gainDB: -1.5,
+                pan: 0.0,
+                kind: .midi,
+                channel: 9,
+                program: 0,
+                isDrum: true,
+                notes: drumNotes
+            ),
+        ]
+
+        return AudioProject(
+            title: "Démo MIDI — Horizon",
+            bpm: bpm,
+            timeSignatureNumerator: 4,
+            timeSignatureDenominator: 4,
+            ticksPerQuarterNote: 480,
+            tracks: tracks,
+            markers: [
+                AudioMarker(name: "Intro", time: 0.0, colorIndex: 0),
+                AudioMarker(name: "Thème A", time: 4.0, colorIndex: 1),
+                AudioMarker(name: "Variation", time: 8.0, colorIndex: 4),
+                AudioMarker(name: "Coda", time: 12.0, colorIndex: 2),
+            ]
+        )
+    }
+
+    public static func writeDemoMIDIFile(to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let project = makeMIDIDemoProject()
+        let data = MIDIFileCodec.encode(project)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Generates a hybrid Audio + MIDI demo project combining `Voix`, `Nappe`, `Grand Piano (MIDI)`, and `Batterie GM (MIDI)`.
+    @discardableResult
+    public static func createHybridDemoFixtures(in directory: URL) throws -> (projectURL: URL, project: AudioProject) {
+        let (_, audioProj) = try createDemoFixtures(in: directory)
+        let midiProj = makeMIDIDemoProject()
+
+        var hybrid = audioProj
+        hybrid.title = "Démo Hybride Audio + MIDI"
+        hybrid.bpm = 120.0
+        var pianoTrack = midiProj.tracks[0]
+        pianoTrack.notes = pianoTrack.notes.filter { $0.start < 8.0 }
+        pianoTrack.pianoRollExpanded = true
+        var bassTrack = midiProj.tracks[1]
+        bassTrack.notes = bassTrack.notes.filter { $0.start < 8.0 }
+        hybrid.tracks.append(pianoTrack)
+        hybrid.tracks.append(bassTrack)
+
+        let projectURL = directory.appendingPathComponent("demo-hybrid.simpleaudio")
+        let data = try DocumentStore.encode(hybrid)
+        try data.write(to: projectURL, options: .atomic)
+        return (projectURL, hybrid)
+    }
 }

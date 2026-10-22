@@ -67,16 +67,59 @@ extension TimelineView {
             addItem(menu, "Supprimer", action: #selector(ctxDelete))
             addItem(menu, "Supprimer et raccorder", action: #selector(ctxRippleDelete))
 
+        case .noteBody(let noteID, _), .noteEdge(let noteID, _):
+            if !model.selectedNotes.contains(noteID) {
+                model.selectedNotes = [noteID]
+                model.selectedClips.removeAll()
+            }
+            if let (ti, _) = project.noteLocation(of: noteID) {
+                model.selectedTrackID = project.tracks[ti].id
+            }
+            needsDisplay = true
+
+            addItem(menu, "Scinder la note ici", action: #selector(ctxSplitAtClick(_:)), represented: clickTime)
+            addItem(menu, "Quantifier à la double-croche (1/16)", action: #selector(ctxQuantize))
+            menu.addItem(.separator())
+            addItem(menu, "Transposer +1 demi-ton", action: #selector(ctxTransposeUp1))
+            addItem(menu, "Transposer −1 demi-ton", action: #selector(ctxTransposeDown1))
+            addItem(menu, "Transposer +1 octave (+12)", action: #selector(ctxTransposeUp12))
+            addItem(menu, "Transposer −1 octave (−12)", action: #selector(ctxTransposeDown12))
+            menu.addItem(.separator())
+            addItem(menu, "Copier", action: #selector(ctxCopy))
+            addItem(menu, "Couper", action: #selector(ctxCut))
+            addItem(menu, "Dupliquer la note", action: #selector(ctxDuplicate))
+            addItem(menu, "Activer/Couper le son de la note", action: #selector(ctxToggleClipMute))
+            menu.addItem(.separator())
+            addItem(menu, "Supprimer", action: #selector(ctxDelete))
+            addItem(menu, "Supprimer et raccorder", action: #selector(ctxRippleDelete))
+
         case .header(let ctrl):
             let trackID: UUID
             switch ctrl {
-            case .mute(let id), .solo(let id), .stereoSplit(let id), .gain(let id), .pan(let id), .title(let id):
+            case .mute(let id), .solo(let id), .stereoSplit(let id), .pianoRoll(let id), .gain(let id), .pan(let id), .title(let id):
                 trackID = id
             }
             model.selectedTrackID = trackID
-            addItem(menu, "Afficher/Masquer les canaux L/R", action: #selector(ctxToggleStereo(_:)), represented: trackID)
+            let isMIDI = project.trackIndex(of: trackID).map { project.tracks[$0].isMIDI } ?? false
+            if isMIDI {
+                addItem(menu, "Ouvrir/Réduire le Piano-Roll (P)", action: #selector(ctxTogglePianoRoll(_:)), represented: trackID)
+                addItem(menu, "Rendre la piste MIDI en piste Audio (WAV)", action: #selector(ctxBounceMIDIToAudio(_:)), represented: trackID)
+                addItem(menu, "Convertir la piste MIDI en Audio sur place", action: #selector(ctxReplaceMIDIWithAudio(_:)), represented: trackID)
+                menu.addItem(.separator())
+            } else {
+                addItem(menu, "Afficher/Masquer les canaux L/R", action: #selector(ctxToggleStereo(_:)), represented: trackID)
+            }
             addItem(menu, "Dupliquer la piste", action: #selector(ctxDuplicateTrack))
+            if project.tracks.count > 1, let ti = project.trackIndex(of: trackID) {
+                if ti > 0 {
+                    addItem(menu, "Monter la piste (⌥↑)", action: #selector(ctxMoveTrackUp(_:)), represented: trackID)
+                }
+                if ti < project.tracks.count - 1 {
+                    addItem(menu, "Descendre la piste (⌥↓)", action: #selector(ctxMoveTrackDown(_:)), represented: trackID)
+                }
+            }
             addItem(menu, "Ajouter une piste audio", action: #selector(ctxAddTrack))
+            addItem(menu, "Ajouter une piste MIDI", action: #selector(ctxAddMIDITrack))
             if project.tracks.count > 1 {
                 menu.addItem(.separator())
                 addItem(menu, "Supprimer la piste", action: #selector(ctxRemoveTrack))
@@ -88,13 +131,14 @@ extension TimelineView {
             addItem(menu, "Supprimer le marqueur", action: #selector(ctxRemoveMarker(_:)), represented: id)
 
         default:
-            if !model.clipboard.isEmpty {
+            if !model.clipboard.isEmpty || !model.noteClipboard.isEmpty {
                 addItem(menu, "Coller ici", action: #selector(ctxPasteAtClick(_:)), represented: clickTime)
                 menu.addItem(.separator())
             }
-            addItem(menu, "Importer des fichiers audio…", action: #selector(ctxImportAudio))
+            addItem(menu, "Importer des fichiers audio ou MIDI…", action: #selector(ctxImportAudio))
             addItem(menu, "Ajouter un marqueur ici", action: #selector(ctxAddMarkerAtClick(_:)), represented: clickTime)
             addItem(menu, "Ajouter une piste audio", action: #selector(ctxAddTrack))
+            addItem(menu, "Ajouter une piste MIDI", action: #selector(ctxAddMIDITrack))
             menu.addItem(.separator())
             addItem(menu, "Ajuster le zoom à la fenêtre", action: #selector(ctxZoomFit))
         }
@@ -123,10 +167,41 @@ extension TimelineView {
     @objc private func ctxReverse() { model.reverseSelectedClips() }
     @objc private func ctxToggleClipMute() { model.toggleMuteSelectedClips() }
     @objc private func ctxAddTrack() { model.addTrack() }
+    @objc private func ctxAddMIDITrack() { _ = model.addMIDITrack() }
     @objc private func ctxDuplicateTrack() { model.duplicateSelectedTrack() }
     @objc private func ctxRemoveTrack() { model.removeSelectedTrack() }
+
+    @objc private func ctxMoveTrackUp(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        model.moveTrack(id, by: -1)
+    }
+
+    @objc private func ctxMoveTrackDown(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        model.moveTrack(id, by: 1)
+    }
     @objc private func ctxImportAudio() { model.importAudioPanel() }
     @objc private func ctxZoomFit() { fit() }
+    @objc private func ctxQuantize() { model.quantizeSelection() }
+    @objc private func ctxTransposeUp1() { model.transposeSelection(semitones: 1) }
+    @objc private func ctxTransposeDown1() { model.transposeSelection(semitones: -1) }
+    @objc private func ctxTransposeUp12() { model.transposeSelection(semitones: 12) }
+    @objc private func ctxTransposeDown12() { model.transposeSelection(semitones: -12) }
+
+    @objc private func ctxTogglePianoRoll(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        model.toggleTrackPianoRoll(id)
+    }
+
+    @objc private func ctxBounceMIDIToAudio(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        _ = model.bounceMIDITrackToAudio(id, replaceMIDITrack: false)
+    }
+
+    @objc private func ctxReplaceMIDIWithAudio(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        _ = model.bounceMIDITrackToAudio(id, replaceMIDITrack: true)
+    }
 
     @objc private func ctxLoopRange() {
         guard let range = model.selectionRange else { return }

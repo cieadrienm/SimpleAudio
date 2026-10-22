@@ -13,6 +13,8 @@ struct TimelineHost: NSViewRepresentable {
     }
 
     func updateNSView(_ view: TimelineView, context: Context) {
-        view.modelChanged()
+        if model.timelineView !== view {
+            model.timelineView = view
+        }
     }
 }

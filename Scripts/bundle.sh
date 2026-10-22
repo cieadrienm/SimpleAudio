@@ -40,6 +40,27 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHumanReadableCopyright</key><string>cie Adrien M — Compagnie Adrien M</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>SimpleAudio Project</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>CFBundleTypeExtensions</key><array><string>simpleaudio</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>Audio File</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+            <key>CFBundleTypeExtensions</key><array><string>wav</string><string>aiff</string><string>aif</string><string>caf</string><string>m4a</string><string>mp3</string><string>flac</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>Standard MIDI File</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+            <key>CFBundleTypeExtensions</key><array><string>mid</string><string>midi</string><string>smf</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

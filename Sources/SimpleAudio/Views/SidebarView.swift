@@ -42,15 +42,27 @@ struct SidebarView: View {
                     // 1. Tracks Section
                     VStack(alignment: .leading, spacing: 6) {
                         SectionHeader("Pistes") {
-                            Button {
-                                model.addTrack()
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(Color(nsColor: Theme.textDim))
+                            HStack(spacing: 6) {
+                                Button {
+                                    model.addMIDITrack()
+                                } label: {
+                                    Image(systemName: "pianokeys")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Color(nsColor: Theme.textDim))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Ajouter une piste MIDI")
+
+                                Button {
+                                    model.addTrack()
+                                } label: {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Color(nsColor: Theme.textDim))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Ajouter une piste audio (⌥⌘N)")
                             }
-                            .buttonStyle(.plain)
-                            .help("Ajouter une piste audio (⇧⌘N)")
                         }
 
                         ForEach(project.tracks) { track in
@@ -120,13 +132,16 @@ struct SidebarView: View {
             Spacer(minLength: 0)
 
             // Bottom quick action bar
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 TextButton(title: "Importer…", symbol: "waveform.badge.plus", compact: true) {
                     model.importAudioPanel()
                 }
-                Spacer()
-                TextButton(title: "+ Piste", compact: true) {
+                Spacer(minLength: 2)
+                TextButton(title: "+ Audio", compact: true) {
                     model.addTrack()
+                }
+                TextButton(title: "+ MIDI", compact: true) {
+                    model.addMIDITrack()
                 }
             }
             .padding(10)
@@ -148,15 +163,22 @@ struct SidebarView: View {
 
     private func trackRow(_ track: AudioTrack) -> some View {
         let selected = model.selectedTrackID == track.id
-        return HStack(spacing: 7) {
+        let trackIdx = project.trackIndex(of: track.id) ?? 0
+        let totalTracks = project.tracks.count
+        return HStack(spacing: 6) {
             Circle()
                 .fill(Color(nsColor: Theme.trackColor(track.colorIndex)))
                 .frame(width: 8, height: 8)
+            if track.isMIDI {
+                Image(systemName: "pianokeys")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Color(nsColor: Theme.accent))
+            }
             Text(track.name)
                 .font(.system(size: 12, weight: selected ? .semibold : .regular))
                 .foregroundStyle(Color(nsColor: Theme.text))
                 .lineLimit(1)
-            Spacer()
+            Spacer(minLength: 2)
             if track.mute {
                 Text("M")
                     .font(.system(size: 9, weight: .bold))
@@ -173,9 +195,36 @@ struct SidebarView: View {
                     .padding(.vertical, 1)
                     .background(RoundedRectangle(cornerRadius: 2.5).fill(Color(nsColor: Theme.soloColor)))
             }
-            Text("\(track.clips.count)")
+            Text(track.isMIDI ? "\(track.notes.count)♩" : "\(track.clips.count)")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Color(nsColor: Theme.textFaint))
+            if totalTracks > 1 {
+                HStack(spacing: 1) {
+                    Button {
+                        model.moveTrack(track.id, by: -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(Color(nsColor: trackIdx > 0 ? Theme.textDim : Theme.textFaint.withAlphaComponent(0.3)))
+                            .frame(width: 14, height: 14)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(trackIdx == 0)
+                    .help("Monter la piste (⌥↑)")
+
+                    Button {
+                        model.moveTrack(track.id, by: 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(Color(nsColor: trackIdx < totalTracks - 1 ? Theme.textDim : Theme.textFaint.withAlphaComponent(0.3)))
+                            .frame(width: 14, height: 14)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(trackIdx >= totalTracks - 1)
+                    .help("Descendre la piste (⌥↓)")
+                }
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -186,6 +235,31 @@ struct SidebarView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             model.selectedTrackID = track.id
+        }
+        .contextMenu {
+            if totalTracks > 1 {
+                Button("Monter la piste (⌥↑)") {
+                    model.moveTrack(track.id, by: -1)
+                }
+                .disabled(trackIdx == 0)
+
+                Button("Descendre la piste (⌥↓)") {
+                    model.moveTrack(track.id, by: 1)
+                }
+                .disabled(trackIdx >= totalTracks - 1)
+
+                Divider()
+            }
+            Button("Dupliquer la piste") {
+                model.selectedTrackID = track.id
+                model.duplicateSelectedTrack()
+            }
+            if totalTracks > 1 {
+                Button("Supprimer la piste", role: .destructive) {
+                    model.selectedTrackID = track.id
+                    model.removeSelectedTrack()
+                }
+            }
         }
     }
 

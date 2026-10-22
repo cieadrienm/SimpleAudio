@@ -20,28 +20,29 @@ struct WelcomeView: View {
                 Text("SimpleAudio")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(nsColor: Theme.text))
-                Text("Glissez un ou plusieurs fichiers audio ici (WAV, AIFF, M4A, MP3, FLAC, CAF)")
+                Text("Glissez des fichiers Audio (WAV, AIFF, M4A, MP3, FLAC, CAF) ou MIDI (.mid, .sf2) ici")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color(nsColor: Theme.textDim))
             }
 
             HStack(spacing: 10) {
-                TextButton(title: "Ouvrir de l'audio…", symbol: "folder", prominent: true) {
-                    model.importAudioPanel()
-                }
-                TextButton(title: "Ouvrir un projet…", symbol: "doc.text") {
+                TextButton(title: "Ouvrir Audio / MIDI…", symbol: "folder", prominent: true) {
                     model.openDocumentPanel()
                 }
-                TextButton(title: "Charger la démo multipiste", symbol: "sparkles") {
+                TextButton(title: "Démo Audio", symbol: "waveform") {
                     model.loadDemoProject()
+                }
+                TextButton(title: "Démo Hybride Audio + MIDI", symbol: "pianokeys") {
+                    model.loadHybridDemoProject()
                 }
             }
 
             HStack(spacing: 18) {
                 shortcutHint("Espace", "Lecture")
                 shortcutHint("B", "Scinder")
-                shortcutHint("⇧+Glisser", "Plage")
-                shortcutHint("⌘C / ⌘V", "Copier / Coller")
+                shortcutHint("P", "Piano-Roll")
+                shortcutHint("Q", "Quantifier")
+                shortcutHint("Z", "Zoom marqueur/curseur")
                 shortcutHint("⌘E", "Exporter")
             }
             .padding(.top, 8)

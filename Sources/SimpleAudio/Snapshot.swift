@@ -48,21 +48,24 @@ enum Snapshot {
         let model = AppModel()
         if let inputPath, !inputPath.isEmpty {
             let url = URL(fileURLWithPath: (inputPath as NSString).expandingTildeInPath)
-            if url.pathExtension.lowercased() == "simpleaudio" {
-                model.openDocument(url: url)
-            } else if FileManager.default.fileExists(atPath: url.path) {
-                model.openAudioAsNewProject(url: url)
+            if FileManager.default.fileExists(atPath: url.path) {
+                model.open(url)
             } else {
-                model.loadDemoProject()
+                model.loadHybridDemoProject()
             }
         } else {
-            model.loadDemoProject()
+            model.loadHybridDemoProject()
         }
-        // Highlight a clip and a time selection range so the snapshot shows waveforms, fades, and range editing
-        if let firstClip = model.store.project.allClips.first?.clip {
+        // Highlight a MIDI track + clip + time selection range so the snapshot shows both Audio waveforms & MIDI Piano-Roll
+        if let midiTrack = model.store.project.tracks.first(where: \.isMIDI) {
+            model.selectedTrackID = midiTrack.id
+            if let firstNote = midiTrack.notes.first {
+                model.selectedNotes = [firstNote.id]
+            }
+        } else if let firstClip = model.store.project.allClips.first?.clip {
             model.selectedClips = [firstClip.id]
         }
-        model.selectionRange = 1.2...2.8
+        model.selectionRange = 1.0...3.0
         model.seek(to: 2.0)
 
         guard let png = renderOffscreenPNG(model: model) else {

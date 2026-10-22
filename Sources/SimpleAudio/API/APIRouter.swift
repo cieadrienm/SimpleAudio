@@ -48,11 +48,7 @@ enum APIRouter {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 return .error(404, "File not found: \(url.path)")
             }
-            if url.pathExtension.lowercased() == "simpleaudio" {
-                model.openDocument(url: url)
-            } else {
-                model.openAudioAsNewProject(url: url)
-            }
+            model.open(url)
             return .json(stateDict(model: model))
 
         case ("POST", "/import"):
@@ -65,9 +61,14 @@ enum APIRouter {
                 return .error(404, "File not found: \(url.path)")
             }
             let at = num(body["at"]) ?? 0
-            if let trackIdx = int(body["track"]),
-               trackIdx >= 0,
-               trackIdx < model.store.project.tracks.count {
+            let ext = url.pathExtension.lowercased()
+            if AppModel.midiExtensions.contains(ext) {
+                _ = try? model.importMIDI(url: url, at: at)
+            } else if AppModel.soundfontExtensions.contains(ext) {
+                _ = model.loadSoundfont(url: url)
+            } else if let trackIdx = int(body["track"]),
+                      trackIdx >= 0,
+                      trackIdx < model.store.project.tracks.count {
                 let trackID = model.store.project.tracks[trackIdx].id
                 let meta = model.waveforms.probe(url: url)
                 _ = model.waveforms.load(url: url)
@@ -193,11 +194,16 @@ enum APIRouter {
             "time": model.playhead,
             "duration": proj.totalDuration,
             "sampleRate": proj.sampleRate,
+            "bpm": proj.bpm,
+            "timeSignature": "\(proj.timeSignatureNumerator)/\(proj.timeSignatureDenominator)",
+            "soundfont": model.engine.activeSoundfontName,
             "masterGainDB": proj.masterGainDB,
             "trackCount": proj.tracks.count,
             "clipCount": proj.allClips.count,
+            "noteCount": proj.noteCount,
             "markerCount": proj.markers.count,
             "selectedClips": model.selectedClips.map(\.uuidString).sorted(),
+            "selectedNotes": model.selectedNotes.map(\.uuidString).sorted(),
             "selectedTrack": model.selectedTrackID?.uuidString ?? NSNull(),
             "peakLeft": model.peakLeft,
             "peakRight": model.peakRight,
@@ -262,7 +268,15 @@ enum APIRouter {
         case "track.add":
             let name = op["name"] as? String
             let at = int(op["at"])
-            _ = Operations.addTrack(&proj, name: name, at: at)
+            let trackKind = (op["kind"] as? String)?.lowercased()
+            if trackKind == "midi" {
+                let program = int(op["program"]) ?? 0
+                let isDrum = (op["isDrum"] as? Bool) ?? (int(op["channel"]) == 9)
+                let channel = int(op["channel"]) ?? (isDrum ? 9 : 0)
+                _ = Operations.addMIDITrack(&proj, name: name, program: program, channel: channel, isDrum: isDrum)
+            } else {
+                _ = Operations.addTrack(&proj, name: name, at: at)
+            }
 
         case "track.remove":
             let id = try resolveTrackID(op["track"], in: proj)
@@ -271,6 +285,16 @@ enum APIRouter {
         case "track.duplicate":
             let id = try resolveTrackID(op["track"], in: proj)
             _ = try Operations.duplicateTrack(&proj, id: id)
+
+        case "track.move":
+            let id = try resolveTrackID(op["track"], in: proj)
+            if let to = int(op["to"] ?? op["index"]) {
+                try Operations.moveTrack(&proj, id: id, to: to)
+            } else if let delta = int(op["delta"]) {
+                proj.moveTrack(id, by: delta)
+            } else {
+                throw EditError.invalidArg("track.move requires 'to' (0-based index) or 'delta' (-1/+1)")
+            }
 
         case "track.set":
             let id = try resolveTrackID(op["track"], in: proj)
@@ -282,6 +306,117 @@ enum APIRouter {
             if let solo = op["solo"] as? Bool { try Operations.setTrackSolo(&proj, id: id, solo: solo) }
             if let locked = op["locked"] as? Bool { proj.tracks[ti].locked = locked }
             if let stereo = op["stereoSplit"] as? Bool { proj.tracks[ti].stereoSplit = stereo }
+            if let prog = int(op["program"]) { proj.setTrackProgram(id, program: prog) }
+            if let ch = int(op["channel"]) { proj.setTrackChannel(id, channel: ch, isDrum: op["isDrum"] as? Bool) }
+            if let tr = int(op["transpose"]) { proj.setTrackTranspose(id, semitones: tr) }
+            if let pr = op["pianoRollExpanded"] as? Bool { proj.setTrackPianoRollExpanded(id, pr) }
+
+        case "track.bounceToAudio":
+            let id = try resolveTrackID(op["track"], in: proj)
+            guard let ti = proj.trackIndex(of: id) else { throw EditError.trackNotFound }
+            let track = proj.tracks[ti]
+            let replace = (op["replace"] as? Bool) ?? false
+            let dir = model.store.url?.deletingLastPathComponent()
+                ?? FileManager.default.temporaryDirectory.appendingPathComponent("SimpleAudioBounces", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let wavURL = dir.appendingPathComponent("\(track.name)-bounce-\(UUID().uuidString.prefix(6)).wav")
+            let clip = try AudioExporter.bounceMIDITrack(track, in: proj, to: wavURL, sampleRate: proj.sampleRate)
+            _ = model.waveforms.preloadSync(wavURL)
+            if replace {
+                proj.tracks[ti].kind = .audio
+                proj.tracks[ti].notes.removeAll()
+                proj.tracks[ti].pianoRollExpanded = false
+                proj.tracks[ti].stereoSplit = true
+                proj.tracks[ti].clips = [clip]
+            } else {
+                let audioTrack = AudioTrack(
+                    name: "\(track.name) (Audio)",
+                    colorIndex: (track.colorIndex + 1) % 8,
+                    gainDB: track.gainDB,
+                    pan: track.pan,
+                    stereoSplit: true,
+                    kind: .audio,
+                    clips: [clip]
+                )
+                proj.tracks.insert(audioTrack, at: min(ti + 1, proj.tracks.count))
+            }
+            createdClips.append(clip.id)
+
+        case "note.add":
+            let trackID: UUID
+            if let rawTrack = op["track"] {
+                trackID = try resolveTrackID(rawTrack, in: proj)
+            } else if let firstMIDI = proj.tracks.first(where: \.isMIDI) {
+                trackID = firstMIDI.id
+            } else {
+                trackID = Operations.addMIDITrack(&proj).id
+            }
+            let note = MIDINote(
+                pitch: int(op["pitch"]) ?? 60,
+                start: max(0, num(op["start"]) ?? 0),
+                duration: max(MIDINote.minDuration, num(op["duration"]) ?? 0.5),
+                velocity: int(op["velocity"]) ?? 100
+            )
+            proj.addNote(note, toTrack: trackID)
+
+        case "note.move":
+            let id = try resolveClipID(op["note"])
+            guard let n = proj.note(id: id) else { throw EditError.clipNotFound }
+            let toTrack = try op["track"].map { try resolveTrackID($0, in: proj) }
+            proj.moveNote(
+                id,
+                toTrack: toTrack,
+                toStart: num(op["start"]) ?? n.start,
+                pitch: int(op["pitch"]) ?? n.pitch
+            )
+
+        case "note.trim":
+            let id = try resolveClipID(op["note"])
+            guard let n = proj.note(id: id) else { throw EditError.clipNotFound }
+            let start = num(op["start"]) ?? n.start
+            let duration = num(op["duration"]) ?? (num(op["end"]).map { $0 - start } ?? n.duration)
+            proj.trimNote(id, start: start, duration: duration)
+
+        case "note.velocity":
+            let id = try resolveClipID(op["note"])
+            guard let vel = int(op["velocity"]) else { throw EditError.invalidArg("note.velocity requires 'velocity'") }
+            proj.setNoteVelocity(id, velocity: vel)
+
+        case "note.pitch":
+            let id = try resolveClipID(op["note"])
+            guard let pitch = int(op["pitch"]) else { throw EditError.invalidArg("note.pitch requires 'pitch'") }
+            proj.setNotePitch(id, pitch: pitch)
+
+        case "note.remove":
+            let ids = try resolveClipIDArray(op["notes"] ?? op["note"])
+            let ripple = (op["ripple"] as? Bool) ?? false
+            proj.removeNotes(Set(ids), ripple: ripple)
+
+        case "note.quantize":
+            let subdiv = num(op["subdivisionBeats"]) ?? 0.25
+            let ids: Set<UUID>? = (op["notes"] != nil || op["note"] != nil) ? Set(try resolveClipIDArray(op["notes"] ?? op["note"])) : nil
+            let trackIDs: Set<UUID>? = try op["track"].map { [try resolveTrackID($0, in: proj)] }
+            proj.quantizeNotes(ids, subdivisionBeats: subdiv, trackIDs: trackIDs)
+
+        case "note.transpose":
+            guard let semitones = int(op["semitones"]) else { throw EditError.invalidArg("note.transpose requires 'semitones'") }
+            if op["notes"] != nil || op["note"] != nil {
+                let ids = Set(try resolveClipIDArray(op["notes"] ?? op["note"]))
+                proj.transposeNotes(ids, semitones: semitones)
+            } else if let rawTrack = op["track"] {
+                let trackID = try resolveTrackID(rawTrack, in: proj)
+                if let ti = proj.trackIndex(of: trackID) {
+                    proj.transposeNotes(Set(proj.tracks[ti].notes.map(\.id)), semitones: semitones)
+                }
+            } else {
+                proj.transposeNotes(Set(proj.allNotes.map(\.note.id)), semitones: semitones)
+            }
+
+        case "tempo.set":
+            if let bpm = num(op["bpm"]) { proj.setTempo(bpm) }
+            if let numSig = int(op["numerator"]), let denSig = int(op["denominator"]) {
+                proj.setTimeSignature(numerator: numSig, denominator: denSig)
+            }
 
         case "clip.add":
             guard let rawPath = op["path"] as? String, !rawPath.isEmpty else {

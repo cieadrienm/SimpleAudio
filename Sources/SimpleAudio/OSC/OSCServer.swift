@@ -158,8 +158,33 @@ final class OSCServer {
                 } else {
                     model.toggleTrackSolo(trackID)
                 }
+            case "program":
+                if let prog = msg.int(at: 0) {
+                    model.setTrackProgram(trackID, prog)
+                }
+            case "transpose":
+                if let st = msg.int(at: 0) {
+                    model.setTrackTranspose(trackID, st)
+                }
             default:
                 break
+            }
+
+        case "bpm", "tempo":
+            if let bpm = msg.double(at: 0) {
+                model.setBPM(bpm)
+            }
+
+        case "quantize":
+            let subdiv = msg.double(at: 0) ?? 0.25
+            model.quantizeSelection(subdivisionBeats: subdiv)
+
+        case "note":
+            if route.count >= 2 && route[1] == "preview" {
+                let pitch = msg.int(at: 0) ?? 60
+                let velocity = msg.int(at: 1) ?? 100
+                let program = msg.int(at: 2) ?? (model.activeTrack?.program ?? 0)
+                model.engine.previewNote(pitch: pitch, velocity: velocity, program: program)
             }
 
         case "clip":

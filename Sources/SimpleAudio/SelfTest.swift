@@ -123,7 +123,63 @@ enum SelfTest {
         osc.handle(OSCMessage("/simpleaudio/track/0/gain", [.float(-4.5)]))
         try check(abs(model.store.project.tracks[0].gainDB - (-4.5)) < 1e-4, "OSC track gain failed")
 
-        // 6. Test offscreen PNG snapshot rendering
+        // 6. Test 3-level marker Z zoom cycling (15s -> section -> full track)
+        model.seek(to: 1.0)
+        model.addMarkerAtPlayhead(name: "Intro")
+        let introMarkerID = model.selectedMarkerID
+        model.seek(to: 2.8)
+        model.addMarkerAtPlayhead(name: "Couplet")
+        model.selectedMarkerID = introMarkerID
+        model.perform(.toggleZoom) // Level 1: 15s window
+        try check(tv.markerZoomStage?.level == 1, "Expected marker zoom step 1 (15s)")
+        model.perform(.toggleZoom) // Level 2: section between Intro (1.0s) and Couplet (2.8s)
+        try check(tv.markerZoomStage?.level == 2, "Expected marker zoom step 2 (section)")
+        model.perform(.toggleZoom) // Level 3: full track fit
+        try check(tv.markerZoomStage?.level == 3 && tv.isFitted, "Expected marker zoom step 3 (full track)")
+
+        // 7. Test integrated MIDI (.mid round-trip, Piano-Roll hit-testing, MIDI -> Audio bounce, hybrid export)
+        let midURL = tmp.appendingPathComponent("demo.mid")
+        try SyntheticAudio.writeDemoMIDIFile(to: midURL)
+        let importedMIDITracks = try model.importMIDI(url: midURL, at: 0)
+        try check(!importedMIDITracks.isEmpty, "Expected imported MIDI tracks")
+        try check(model.store.project.hasMIDITracks && model.store.project.hasAudioTracks, "Expected hybrid Audio + MIDI project")
+        try check(model.store.project.noteCount >= 20, "Expected >= 20 MIDI notes in hybrid project")
+
+        // Verify Piano-Roll expansion & note hit-testing
+        let midiTrackID = importedMIDITracks[0]
+        if let ti = model.store.project.trackIndex(of: midiTrackID), !model.store.project.tracks[ti].pianoRollExpanded {
+            model.toggleTrackPianoRoll(midiTrackID)
+        }
+        tv.frame = CGRect(x: 0, y: 0, width: 1280, height: 960)
+        tv.secondsPerPoint = 0.005
+        tv.scrollOffset = 0
+        let hybridRows = tv.trackRows()
+        if let midiRow = hybridRows.first(where: { $0.track.id == midiTrackID }),
+           let firstNote = midiRow.track.notes.first {
+            let nRect = tv.noteRect(firstNote, in: midiRow)
+            let noteHit = tv.hit(at: CGPoint(x: nRect.midX, y: nRect.midY))
+            try check(noteHit == .noteBody(noteID: firstNote.id, trackID: midiTrackID), "Expected noteBody hit in Piano-Roll, got \(String(describing: noteHit))")
+        }
+        tv.fit(animate: false)
+
+        // Bounce MIDI track to Audio WAV track and verify clip creation
+        let countBeforeBounce = model.store.project.tracks.count
+        let bouncedTrackID = model.bounceMIDITrackToAudio(midiTrackID, replaceMIDITrack: false)
+        try check(bouncedTrackID != nil, "Expected bounceMIDITrackToAudio to succeed")
+        try check(model.store.project.tracks.count == countBeforeBounce + 1, "Expected 1 new Audio track after MIDI bounce")
+
+        // Export Standard MIDI File (.mid)
+        let outMID = tmp.appendingPathComponent("export.mid")
+        let midRes = try AudioExporter.export(
+            project: model.store.project,
+            waveforms: model.waveforms,
+            to: outMID,
+            options: ExportOptions(format: .mid),
+            baseURL: model.store.url
+        )
+        try check(fm.fileExists(atPath: midRes.url.path), "MIDI export file missing")
+
+        // 8. Test offscreen PNG snapshot rendering (with hybrid Audio + MIDI Piano-Roll visible)
         guard let png = Snapshot.renderOffscreenPNG(model: model), png.count > 2000 else {
             throw Failure("Offscreen PNG snapshot rendering failed")
         }

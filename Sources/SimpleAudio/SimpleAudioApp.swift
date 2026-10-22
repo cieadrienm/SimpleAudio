@@ -42,18 +42,32 @@ struct SimpleAudioApp: App {
             }
             .keyboardShortcut("n", modifiers: [.command])
 
-            Button("Ouvrir un projet…") {
+            Button("Ouvrir Audio, MIDI ou Projet…") {
                 model.openDocumentPanel()
             }
             .keyboardShortcut("o", modifiers: [.command])
 
-            Button("Importer des fichiers audio…") {
+            Button("Importer des fichiers Audio / MIDI…") {
                 model.importAudioPanel()
             }
             .keyboardShortcut("i", modifiers: [.command])
 
-            Button("Charger la démo multipiste") {
+            Button("Charger une banque SoundFont (.sf2 / .dls)…") {
+                model.chooseSoundfontPanel()
+            }
+
+            Divider()
+
+            Button("Charger la démo multipiste Audio") {
                 model.loadDemoProject()
+            }
+
+            Button("Charger la démo hybride Audio + MIDI") {
+                model.loadHybridDemoProject()
+            }
+
+            Button("Charger la démo MIDI (Piano-Roll)") {
+                model.loadMIDIDemoProject()
             }
 
             Divider()
@@ -70,10 +84,15 @@ struct SimpleAudioApp: App {
 
             Divider()
 
-            Button("Exporter l'audio…") {
+            Button("Exporter Audio / MIDI…") {
                 model.showExportSheet = true
             }
             .keyboardShortcut("e", modifiers: [.command])
+
+            Button("Exporter en fichier MIDI (.mid)…") {
+                model.exportMIDIFilePanel()
+            }
+            .disabled(!model.store.project.hasMIDITracks)
         }
 
         CommandGroup(replacing: .undoRedo) {
@@ -189,11 +208,70 @@ struct SimpleAudioApp: App {
             .keyboardShortcut("r", modifiers: [.command])
         }
 
-        CommandMenu("Piste") {
+        CommandMenu("Piste & MIDI") {
             Button("Nouvelle piste audio") {
                 model.addTrack()
             }
             .keyboardShortcut("n", modifiers: [.command, .option])
+
+            Button("Nouvelle piste MIDI (Piano-Roll)") {
+                model.addMIDITrack()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .control])
+
+            Button("Ouvrir / Réduire le Piano-Roll  P") {
+                model.toggleSelectedTrackPianoRoll()
+            }
+
+            Divider()
+
+            Button("Quantifier les notes (1/16)  Q") {
+                model.quantizeSelection(subdivisionBeats: 0.25)
+            }
+
+            Button("Transposer +1 demi-ton  ↑") {
+                model.transposeSelection(semitones: 1)
+            }
+
+            Button("Transposer -1 demi-ton  ↓") {
+                model.transposeSelection(semitones: -1)
+            }
+
+            Button("Transposer +1 octave  ⇧↑") {
+                model.transposeSelection(semitones: 12)
+            }
+
+            Button("Transposer -1 octave  ⇧↓") {
+                model.transposeSelection(semitones: -12)
+            }
+
+            Divider()
+
+            Button("Rendre la piste MIDI en piste Audio (WAV)") {
+                if let id = model.selectedTrackID {
+                    model.bounceMIDITrackToAudio(id, replaceMIDITrack: false)
+                }
+            }
+            .disabled(model.activeTrack?.isMIDI != true)
+
+            Button("Convertir la piste MIDI en piste Audio") {
+                if let id = model.selectedTrackID {
+                    model.bounceMIDITrackToAudio(id, replaceMIDITrack: true)
+                }
+            }
+            .disabled(model.activeTrack?.isMIDI != true)
+
+            Divider()
+
+            Button("Monter la piste  ⌥↑") {
+                model.moveSelectedTrackUp()
+            }
+            .disabled(model.store.project.tracks.count <= 1)
+
+            Button("Descendre la piste  ⌥↓") {
+                model.moveSelectedTrackDown()
+            }
+            .disabled(model.store.project.tracks.count <= 1)
 
             Button("Dupliquer la piste") {
                 model.duplicateSelectedTrack()
@@ -390,6 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = model.transportPlaying
             _ = model.selectionRange
             _ = model.selectedClips
+            _ = model.selectedNotes
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.apiServer?.notifyStateChanged()

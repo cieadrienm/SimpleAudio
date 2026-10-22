@@ -12,6 +12,9 @@ extension TimelineView {
         case fadeHandle(clipID: UUID, isIn: Bool)
         case clipEdge(clipID: UUID, edge: Edge)
         case clipBody(clipID: UUID, trackID: UUID)
+        case pianoKey(trackID: UUID, pitch: Int)
+        case noteEdge(noteID: UUID, edge: Edge)
+        case noteBody(noteID: UUID, trackID: UUID)
         case emptyLane(trackID: UUID?)
     }
 
@@ -48,17 +51,30 @@ extension TimelineView {
         // Track headers (left column)
         if point.x < Metrics.headerWidth {
             if let row = rows.first(where: { $0.rect.minY <= point.y && point.y < $0.rect.maxY }) {
-                let c = headerControlRects(in: row.rect)
+                let isMIDI = row.track.isMIDI
+                let c = headerControlRects(in: row.rect, isMIDI: isMIDI)
                 if c.mute.insetBy(dx: -2, dy: -2).contains(point) { return .header(.mute(row.track.id)) }
                 if c.solo.insetBy(dx: -2, dy: -2).contains(point) { return .header(.solo(row.track.id)) }
-                if c.stereo.insetBy(dx: -2, dy: -2).contains(point) { return .header(.stereoSplit(row.track.id)) }
-                if row.rect.height >= 54 {
+                if c.third.insetBy(dx: -2, dy: -2).contains(point) {
+                    return isMIDI ? .header(.pianoRoll(row.track.id)) : .header(.stereoSplit(row.track.id))
+                }
+                let minHForPills: CGFloat = isMIDI ? 66 : 54
+                if row.rect.height >= minHForPills {
                     if c.gain.contains(point) { return .header(.gain(row.track.id)) }
                     if c.pan.contains(point) { return .header(.pan(row.track.id)) }
                 }
                 return .header(.title(row.track.id))
             }
             return .emptyLane(trackID: nil)
+        }
+
+        // Piano keyboard strip on the left edge of expanded MIDI lane
+        if let row = rows.first(where: { $0.rect.minY <= point.y && point.y < $0.rect.maxY }),
+           row.track.isMIDI,
+           row.showPianoKeys,
+           point.x < Metrics.headerWidth + Metrics.pianoKeysWidth {
+            let pVal = pitch(forY: point.y, in: row)
+            return .pianoKey(trackID: row.track.id, pitch: pVal)
         }
 
         // Selection range edges in lanes
@@ -77,29 +93,46 @@ extension TimelineView {
             return .emptyLane(trackID: nil)
         }
 
-        // Check clips in this track row
-        for clip in row.track.clips.reversed() {
-            let rect = clipRect(clip, in: row.rect)
-            let handles = fadeHandleCenters(for: clip, in: row.rect)
-            if hypot(point.x - handles.fadeIn.x, point.y - handles.fadeIn.y) <= Metrics.fadeHit {
-                return .fadeHandle(clipID: clip.id, isIn: true)
-            }
-            if hypot(point.x - handles.fadeOut.x, point.y - handles.fadeOut.y) <= Metrics.fadeHit {
-                return .fadeHandle(clipID: clip.id, isIn: false)
-            }
+        if row.track.isMIDI {
+            for note in row.track.notes.reversed() {
+                let rect = noteRect(note, in: row)
+                let expanded = rect.insetBy(dx: -Metrics.edgeOutside, dy: -1.5)
+                guard expanded.contains(point) else { continue }
 
-            let expanded = rect.insetBy(dx: -Metrics.edgeOutside, dy: 0)
-            guard expanded.contains(point) else { continue }
+                let insideEdge = min(Metrics.edgeInside, max(rect.width * 0.25, 2.5))
+                if point.x <= rect.minX + insideEdge {
+                    return .noteEdge(noteID: note.id, edge: .start)
+                }
+                if point.x >= rect.maxX - insideEdge {
+                    return .noteEdge(noteID: note.id, edge: .end)
+                }
+                return .noteBody(noteID: note.id, trackID: row.track.id)
+            }
+        } else {
+            // Check clips in this track row
+            for clip in row.track.clips.reversed() {
+                let rect = clipRect(clip, in: row.rect)
+                let handles = fadeHandleCenters(for: clip, in: row.rect)
+                if hypot(point.x - handles.fadeIn.x, point.y - handles.fadeIn.y) <= Metrics.fadeHit {
+                    return .fadeHandle(clipID: clip.id, isIn: true)
+                }
+                if hypot(point.x - handles.fadeOut.x, point.y - handles.fadeOut.y) <= Metrics.fadeHit {
+                    return .fadeHandle(clipID: clip.id, isIn: false)
+                }
 
-            let insideEdge = min(Metrics.edgeInside, max(rect.width * 0.25, 3))
-            if point.x <= rect.minX + insideEdge {
-                return .clipEdge(clipID: clip.id, edge: .start)
-            }
-            if point.x >= rect.maxX - insideEdge {
-                return .clipEdge(clipID: clip.id, edge: .end)
-            }
-            if rect.contains(point) {
-                return .clipBody(clipID: clip.id, trackID: row.track.id)
+                let expanded = rect.insetBy(dx: -Metrics.edgeOutside, dy: 0)
+                guard expanded.contains(point) else { continue }
+
+                let insideEdge = min(Metrics.edgeInside, max(rect.width * 0.25, 3))
+                if point.x <= rect.minX + insideEdge {
+                    return .clipEdge(clipID: clip.id, edge: .start)
+                }
+                if point.x >= rect.maxX - insideEdge {
+                    return .clipEdge(clipID: clip.id, edge: .end)
+                }
+                if rect.contains(point) {
+                    return .clipBody(clipID: clip.id, trackID: row.track.id)
+                }
             }
         }
 
@@ -108,8 +141,10 @@ extension TimelineView {
 
     func cursor(for hit: Hit, modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) -> TimelineCursor {
         switch hit {
-        case .cornerMag, .header(.mute), .header(.solo), .header(.stereoSplit), .header(.title), .marker, .overview:
+        case .cornerMag, .header(.mute), .header(.solo), .header(.stereoSplit), .header(.pianoRoll), .marker, .overview, .pianoKey:
             return .pointing
+        case .header(.title):
+            return project.tracks.count > 1 ? .openHand : .pointing
         case .header(.gain):
             return .resizeHorizontal
         case .header(.pan):
@@ -120,7 +155,7 @@ extension TimelineView {
             return .resizeHorizontal
         case .fadeHandle:
             return .fade
-        case .clipEdge(_, let edge):
+        case .clipEdge(_, let edge), .noteEdge(_, let edge):
             return edge == .start ? .trimLeft : .trimRight
         case .clipBody:
             if modifiers.contains(.shift) {
@@ -130,6 +165,8 @@ extension TimelineView {
                 return .slip
             }
             return .openHand
+        case .noteBody:
+            return modifiers.contains(.shift) ? .ibeam : .openHand
         case .emptyLane:
             return .ibeam
         }
@@ -156,8 +193,9 @@ extension TimelineView {
 
     override func mouseExited(with event: NSEvent) {
         lastMouse = nil
-        if hoveredClip != nil || hoverHit != nil {
+        if hoveredClip != nil || hoveredNote != nil || hoverHit != nil {
             hoveredClip = nil
+            hoveredNote = nil
             hoverHit = nil
             needsDisplay = true
         }
@@ -173,14 +211,21 @@ extension TimelineView {
     private func updateHover(at pt: CGPoint, modifiers: NSEvent.ModifierFlags) {
         let h = hit(at: pt)
         let newClip: UUID?
+        let newNote: UUID?
         switch h {
         case .clipBody(let id, _), .clipEdge(let id, _), .fadeHandle(let id, _):
             newClip = id
+            newNote = nil
+        case .noteBody(let id, _), .noteEdge(let id, _):
+            newClip = nil
+            newNote = id
         default:
             newClip = nil
+            newNote = nil
         }
-        if newClip != hoveredClip || h != hoverHit {
+        if newClip != hoveredClip || newNote != hoveredNote || h != hoverHit {
             hoveredClip = newClip
+            hoveredNote = newNote
             hoverHit = h
             needsDisplay = true
         }
@@ -216,19 +261,19 @@ extension TimelineView {
 
         case .marker(let id):
             model.selectedMarkerID = id
-            if event.clickCount == 2 {
-                if let marker = p.markers.first(where: { $0.id == id }) {
-                    model.seek(to: marker.time)
-                }
-                return
-            }
             if let marker = p.markers.first(where: { $0.id == id }) {
+                model.statusMessage = "Marqueur « \(marker.name) » sélectionné (Z : zoom 15s / zone / piste entière)"
+                if event.clickCount == 2 {
+                    model.seek(to: marker.time)
+                    return
+                }
                 let grab = time(for: pt.x) - marker.time
                 drag = .marker(markerID: id, grab: grab, originalTime: marker.time)
             }
             needsDisplay = true
 
         case .ruler:
+            model.selectedMarkerID = nil
             if event.clickCount == 2 {
                 let t = max(0, time(for: pt.x))
                 model.seek(to: t)
@@ -248,6 +293,14 @@ extension TimelineView {
         case .header(let ctrl):
             handleHeaderMouseDown(ctrl, point: pt, event: event)
 
+        case .pianoKey(let trackID, let pitch):
+            model.selectedTrackID = trackID
+            if let ti = p.trackIndex(of: trackID) {
+                let track = p.tracks[ti]
+                model.engine.previewNote(pitch: pitch, velocity: 100, program: track.program, isDrum: track.isDrum || track.channel == 9)
+                model.statusMessage = "Clavier : \(GeneralMIDI.noteName(pitch)) (MIDI \(pitch))"
+            }
+
         case .rangeEdge(let edge):
             guard let range = model.selectionRange else { return }
             let other = edge == .start ? range.upperBound : range.lowerBound
@@ -259,6 +312,7 @@ extension TimelineView {
             let clip = p.tracks[ti].clips[ci]
             guard !p.tracks[ti].locked else { return }
             model.selectedClips = [clipID]
+            model.selectedNotes.removeAll()
             model.selectedTrackID = p.tracks[ti].id
             let edgeTime = isIn ? (clip.offset + clip.fadeIn) : (clip.end - clip.fadeOut)
             drag = .fade(clipID: clipID, isIn: isIn, grab: time(for: pt.x) - edgeTime, original: clip)
@@ -270,6 +324,7 @@ extension TimelineView {
             let clip = p.tracks[ti].clips[ci]
             guard !p.tracks[ti].locked else { return }
             model.selectedClips = [clipID]
+            model.selectedNotes.removeAll()
             model.selectedTrackID = p.tracks[ti].id
             let edgeTime = edge == .start ? clip.offset : clip.end
             drag = .trim(clipID: clipID, edge: edge, grab: time(for: pt.x) - edgeTime, original: clip)
@@ -278,7 +333,7 @@ extension TimelineView {
 
         case .clipBody(let clipID, let trackID):
             model.selectedTrackID = trackID
-            // Double-click on a clip selects its time range for instant range editing
+            model.selectedNotes.removeAll()
             if event.clickCount == 2 {
                 if let (ti, ci) = p.clipLocation(of: clipID) {
                     let clip = p.tracks[ti].clips[ci]
@@ -288,7 +343,6 @@ extension TimelineView {
                 }
                 return
             }
-            // Shift-drag on a clip sweeps out a time range selection (waveform editor style)
             if event.modifierFlags.contains(.shift) {
                 let t = max(0, time(for: pt.x))
                 model.selectionRange = t...t
@@ -321,12 +375,107 @@ extension TimelineView {
             )
             needsDisplay = true
 
+        case .noteEdge(let noteID, let edge):
+            guard let (ti, ni) = p.noteLocation(of: noteID), !p.tracks[ti].locked else { return }
+            let note = p.tracks[ti].notes[ni]
+            model.selectedNotes = [noteID]
+            model.selectedClips.removeAll()
+            model.selectedTrackID = p.tracks[ti].id
+            let edgeTime = edge == .start ? note.start : note.end
+            drag = .trimNote(noteID: noteID, edge: edge, grabTime: time(for: pt.x) - edgeTime, originalNote: note)
+            applyCursor(edge == .start ? .trimLeft : .trimRight)
+            needsDisplay = true
+
+        case .noteBody(let noteID, let trackID):
+            model.selectedTrackID = trackID
+            model.selectedClips.removeAll()
+            guard let (ti, ni) = p.noteLocation(of: noteID) else { return }
+            let track = p.tracks[ti]
+            let note = track.notes[ni]
+
+            model.engine.previewNote(
+                pitch: note.pitch + ((track.isDrum || track.channel == 9) ? 0 : track.transpose),
+                velocity: note.velocity,
+                program: track.program,
+                isDrum: track.isDrum || track.channel == 9
+            )
+
+            if event.clickCount == 2 {
+                model.selectedNotes = [noteID]
+                model.selectionRange = note.start...note.end
+                needsDisplay = true
+                return
+            }
+            if event.modifierFlags.contains(.shift) {
+                let t = max(0, time(for: pt.x))
+                model.selectionRange = t...t
+                drag = .rangeSelect(originTime: t, trackID: trackID)
+                applyCursor(.ibeam)
+                needsDisplay = true
+                return
+            }
+            if event.modifierFlags.contains(.command) {
+                if model.selectedNotes.contains(noteID) {
+                    model.selectedNotes.remove(noteID)
+                } else {
+                    model.selectedNotes.insert(noteID)
+                }
+            } else if !model.selectedNotes.contains(noteID) {
+                model.selectedNotes = [noteID]
+            }
+            guard !track.locked else {
+                needsDisplay = true
+                return
+            }
+            drag = .pressNote(
+                noteID: noteID,
+                trackID: trackID,
+                startPoint: pt,
+                grabTime: time(for: pt.x) - note.start,
+                originalNote: note
+            )
+            needsDisplay = true
+
         case .emptyLane(let trackID):
             if let trackID {
                 model.selectedTrackID = trackID
             }
+            if (event.clickCount == 2 || event.modifierFlags.contains(.option)),
+               let row = trackRow(at: pt, for: p),
+               row.track.isMIDI,
+               !row.track.locked {
+                let rawStart = max(0, time(for: pt.x))
+                let targets = snapTargets(in: p)
+                let (snappedStart, _) = snap(rawStart, targets: targets)
+                let clickedPitch = pitch(forY: pt.y, in: row)
+                let defaultDur = max(0.15, p.secondsPerBeat * 0.5)
+                var createdID: UUID?
+                model.store.perform("Créer une note (\(GeneralMIDI.noteName(clickedPitch)))") { proj in
+                    createdID = proj.addNote(
+                        toTrack: row.track.id,
+                        pitch: clickedPitch,
+                        start: snappedStart,
+                        duration: defaultDur,
+                        velocity: 100
+                    )
+                }
+                if let createdID {
+                    model.selectedNotes = [createdID]
+                    model.selectedClips.removeAll()
+                    model.engine.previewNote(
+                        pitch: clickedPitch + ((row.track.isDrum || row.track.channel == 9) ? 0 : row.track.transpose),
+                        velocity: 100,
+                        program: row.track.program,
+                        isDrum: row.track.isDrum || row.track.channel == 9
+                    )
+                }
+                return
+            }
+
             if !event.modifierFlags.contains(.command) {
                 model.selectedClips.removeAll()
+                model.selectedNotes.removeAll()
+                model.selectedMarkerID = nil
             }
             let t = max(0, time(for: pt.x))
             model.seek(to: t)
@@ -349,6 +498,9 @@ extension TimelineView {
         case .stereoSplit(let id):
             model.selectedTrackID = id
             model.toggleTrackStereoSplit(id)
+        case .pianoRoll(let id):
+            model.selectedTrackID = id
+            model.toggleTrackPianoRoll(id)
         case .gain(let id):
             model.selectedTrackID = id
             guard let ti = p.trackIndex(of: id) else { return }
@@ -367,6 +519,13 @@ extension TimelineView {
             drag = .trackPan(trackID: id, startX: point.x, originalPan: p.tracks[ti].pan)
         case .title(let id):
             model.selectedTrackID = id
+            if event.clickCount == 2, let ti = p.trackIndex(of: id), p.tracks[ti].isMIDI {
+                model.toggleTrackPianoRoll(id)
+                return
+            }
+            if p.tracks.count > 1 {
+                drag = .pressTrack(trackID: id, startY: point.y)
+            }
             needsDisplay = true
         }
     }
@@ -451,7 +610,8 @@ extension TimelineView {
             let (snappedStart, guide) = snapSpan(start: rawStart, duration: clip.duration, targets: targets)
             snapGuide = guide
 
-            let targetTrackID = trackRow(at: pt, for: base)?.track.id ?? originalTrackID
+            let hoveredTrack = trackRow(at: pt, for: base)?.track
+            let targetTrackID = (hoveredTrack != nil && !hoveredTrack!.isMIDI) ? hoveredTrack!.id : originalTrackID
             drag = .move(
                 clipID: clipID,
                 grab: grab,
@@ -533,6 +693,75 @@ extension TimelineView {
             let label = isIn ? "Fondu d'entrée" : "Fondu de sortie"
             showTip("\(label) \(TimeFormat.shortDuration(length)) (\(original.fadeShape.label))", at: pt)
 
+        case .pressNote(let noteID, let trackID, let startPoint, let grabTime, let originalNote):
+            guard hypot(pt.x - startPoint.x, pt.y - startPoint.y) >= Metrics.dragThreshold else { return }
+            drag = .moveNote(
+                noteID: noteID,
+                trackID: trackID,
+                grabTime: grabTime,
+                originalNote: originalNote,
+                lastPreviewPitch: originalNote.pitch
+            )
+            applyCursor(.closedHand)
+            mouseDragged(with: event)
+
+        case .moveNote(let noteID, let trackID, let grabTime, let originalNote, let lastPreviewPitch):
+            let rawStart = max(0, time(for: pt.x) - grabTime)
+            let targets = snapTargets(in: base, excludingNote: noteID)
+            let (snappedStart, guide) = snap(rawStart, targets: targets)
+            snapGuide = guide
+
+            let rows = trackRows(for: base)
+            let currentRow = rows.first { $0.track.id == trackID }
+            let newPitch = currentRow.map { pitch(forY: pt.y, in: $0) } ?? originalNote.pitch
+
+            if newPitch != lastPreviewPitch, let tr = currentRow?.track {
+                model.engine.previewNote(
+                    pitch: newPitch + ((tr.isDrum || tr.channel == 9) ? 0 : tr.transpose),
+                    velocity: originalNote.velocity,
+                    program: tr.program,
+                    isDrum: tr.isDrum || tr.channel == 9,
+                    duration: 0.14
+                )
+                drag = .moveNote(
+                    noteID: noteID,
+                    trackID: trackID,
+                    grabTime: grabTime,
+                    originalNote: originalNote,
+                    lastPreviewPitch: newPitch
+                )
+            }
+
+            stage("Déplacer la note", on: base) { proj in
+                proj.moveNote(noteID, toStart: snappedStart, pitch: newPitch)
+            }
+            let bb = base.barBeat(forSeconds: snappedStart)
+            showTip("\(GeneralMIDI.noteName(newPitch)) (\(newPitch)) · \(TimeFormat.timecode(snappedStart)) · Mes \(bb.bar).\(bb.beat)", at: pt)
+
+        case .trimNote(let noteID, let edge, let grabTime, let originalNote):
+            let rawEdge = max(0, time(for: pt.x) - grabTime)
+            let targets = snapTargets(in: base, excludingNote: noteID)
+            let (snappedEdge, guide) = snap(rawEdge, targets: targets)
+            snapGuide = guide
+
+            switch edge {
+            case .start:
+                let clampedStart = min(max(0, snappedEdge), originalNote.end - MIDINote.minDuration)
+                let newDuration = originalNote.end - clampedStart
+                stage("Rogner le début de la note", on: base) { proj in
+                    proj.trimNote(noteID, start: clampedStart, duration: newDuration)
+                }
+                showTip("Début \(TimeFormat.timecode(clampedStart)) (\(TimeFormat.shortDuration(newDuration)))", at: pt)
+
+            case .end:
+                let clampedEnd = max(originalNote.start + MIDINote.minDuration, snappedEdge)
+                let newDuration = clampedEnd - originalNote.start
+                stage("Ajuster la durée de la note", on: base) { proj in
+                    proj.trimNote(noteID, start: originalNote.start, duration: newDuration)
+                }
+                showTip("Durée \(TimeFormat.shortDuration(newDuration))", at: pt)
+            }
+
         case .trackGain(let trackID, let startY, let originalDB):
             let dy = startY - pt.y
             let newDB = min(max(originalDB + Double(dy) * 0.2, -60), 24)
@@ -548,6 +777,39 @@ extension TimelineView {
                 try? Operations.setTrackPan(&proj, id: trackID, pan: newPan)
             }
             showTip("Pan \(TimeFormat.pan(newPan))", at: pt)
+
+        case .pressTrack(let trackID, let startY):
+            guard abs(pt.y - startY) >= Metrics.dragThreshold,
+                  let initialIdx = base.trackIndex(of: trackID),
+                  base.tracks.count > 1 else { return }
+            drag = .moveTrack(trackID: trackID, targetIndex: initialIdx)
+            applyCursor(.closedHand)
+            mouseDragged(with: event)
+
+        case .moveTrack(let trackID, _):
+            guard let originalIdx = base.trackIndex(of: trackID), base.tracks.count > 1 else { return }
+            let rows = trackRows(for: base)
+            var targetIdx = rows.count - 1
+            for (idx, row) in rows.enumerated() {
+                if pt.y < row.rect.midY {
+                    targetIdx = idx
+                    break
+                }
+            }
+            drag = .moveTrack(trackID: trackID, targetIndex: targetIdx)
+            if targetIdx != originalIdx {
+                stage("Réordonner la piste", on: base) { proj in
+                    proj.moveTrack(trackID, to: targetIdx)
+                }
+            } else {
+                preview = nil
+                pendingEdit = nil
+                pendingLabel = ""
+                model.playback.schedule(project: base)
+                refresh()
+            }
+            let trackName = base.tracks[originalIdx].name
+            showTip("\(trackName) → piste \(targetIdx + 1)/\(base.tracks.count)", at: CGPoint(x: max(pt.x, Metrics.headerWidth + 44), y: pt.y))
         }
     }
 
@@ -555,9 +817,13 @@ extension TimelineView {
         let pt = convert(event.locationInWindow, from: nil)
         lastMouse = pt
 
-        // If user clicked a clip without dragging, also move playhead to click position
-        if case .press = drag {
+        switch drag {
+        case .press, .pressNote:
             model.seek(to: max(0, time(for: pt.x)))
+        case .marker(_, _, let originalTime) where pendingEdit == nil:
+            model.seek(to: originalTime)
+        default:
+            break
         }
 
         if let edit = pendingEdit {
@@ -608,39 +874,51 @@ extension TimelineView {
     // MARK: Scroll & Zoom Gestures
 
     override func scrollWheel(with event: NSEvent) {
-        if event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option) {
+        hideTip()
+        let flags = event.modifierFlags
+        if flags.contains(.command) || flags.contains(.option) {
             let pt = convert(event.locationInWindow, from: nil)
             let anchorX = max(pt.x, Metrics.headerWidth + Metrics.leadIn)
-            let delta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
-            let factor = pow(1.015, delta)
-            zoom(by: factor, at: anchorX)
+            let rawDelta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+            let delta = event.hasPreciseScrollingDeltas ? rawDelta : rawDelta * 8
+            let factor = exp(delta * 0.012)
+            if event.hasPreciseScrollingDeltas {
+                elasticZoom(by: factor, around: anchorX, phase: event.phase, momentum: event.momentumPhase)
+            } else {
+                zoom(by: factor, at: anchorX)
+            }
             return
         }
 
         var dx = event.scrollingDeltaX
         var dy = event.scrollingDeltaY
-        if !event.hasPreciseScrollingDeltas {
-            dx *= 10
-            dy *= 10
-        }
-        if event.modifierFlags.contains(.shift) && abs(dx) < abs(dy) {
+        if flags.contains(.shift) && abs(dx) < abs(dy) {
             dx = dy
             dy = 0
         }
-        if abs(dx) > 0.01 {
-            scrollOffset -= Double(dx) * secondsPerPoint
+
+        guard event.hasPreciseScrollingDeltas else {
+            dx *= 10
+            dy *= 10
+            if abs(dx) > 0.01 {
+                scrollOffset -= Double(dx) * secondsPerPoint
+            }
+            if abs(dy) > 0.01 && project.tracks.count > 1 {
+                verticalScroll -= dy
+            }
+            clampScroll()
+            refresh()
+            return
         }
-        if abs(dy) > 0.01 && project.tracks.count > 1 {
-            verticalScroll -= dy
-        }
-        clampScroll()
-        refresh()
+
+        elasticScroll(dx: dx, dy: dy, phase: event.phase, momentum: event.momentumPhase)
     }
 
     override func magnify(with event: NSEvent) {
+        hideTip()
         let pt = convert(event.locationInWindow, from: nil)
         let anchorX = max(pt.x, Metrics.headerWidth + Metrics.leadIn)
-        zoom(by: max(0.2, 1 + event.magnification), at: anchorX)
+        elasticZoom(by: max(0.2, 1 + event.magnification), around: anchorX, phase: event.phase, momentum: [])
     }
 
     // MARK: Keyboard Navigation & Shortcuts

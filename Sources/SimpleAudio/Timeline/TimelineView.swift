@@ -1,11 +1,30 @@
 import AppKit
 import Observation
+import QuartzCore
 import SimpleAudioCore
 import SimpleAudioEngine
 
+/// Tracks elastic rubber-band overscroll & pinch zoom state during trackpad gestures.
+struct ElasticScrollState {
+    struct Pose: Equatable {
+        var secondsPerPoint: Double
+        var scrollOffset: Double
+        var verticalScroll: CGFloat
+    }
+
+    var virtualOffset: Double?
+    var virtualVertical: CGFloat?
+    var virtualLogSPP: Double?
+    var zoomAnchorTime: Double = 0
+    var zoomAnchorX: CGFloat = 0
+    var ignoreMomentum: Bool = false
+    var animation: (from: Pose, to: Pose, start: CFTimeInterval, duration: CFTimeInterval, bounce: Bool)?
+}
+
 final class TimelineView: NSView {
     enum Metrics {
-        static let headerWidth: CGFloat = 172
+        static let headerWidth: CGFloat = 178
+        static let pianoKeysWidth: CGFloat = 32
         static let overviewHeight: CGFloat = 28
         static let rulerHeight: CGFloat = 24
         static let topBarHeight: CGFloat = overviewHeight + rulerHeight
@@ -21,6 +40,8 @@ final class TimelineView: NSView {
         static let dragThreshold: CGFloat = 3
         static let snapPoints: CGFloat = 8
         static let minSecondsPerPoint: Double = 1.0 / 4000.0
+        static let rubberPixels: CGFloat = 88
+        static let rubberZoomLog: Double = 0.14
     }
 
     enum Edge: Equatable {
@@ -32,6 +53,7 @@ final class TimelineView: NSView {
         case mute(UUID)
         case solo(UUID)
         case stereoSplit(UUID)
+        case pianoRoll(UUID)
         case gain(UUID)
         case pan(UUID)
         case title(UUID)
@@ -48,8 +70,13 @@ final class TimelineView: NSView {
         case slip(clipID: UUID, grab: Double, original: AudioClip)
         case trim(clipID: UUID, edge: Edge, grab: Double, original: AudioClip)
         case fade(clipID: UUID, isIn: Bool, grab: Double, original: AudioClip)
+        case pressNote(noteID: UUID, trackID: UUID, startPoint: CGPoint, grabTime: Double, originalNote: MIDINote)
+        case moveNote(noteID: UUID, trackID: UUID, grabTime: Double, originalNote: MIDINote, lastPreviewPitch: Int)
+        case trimNote(noteID: UUID, edge: Edge, grabTime: Double, originalNote: MIDINote)
         case trackGain(trackID: UUID, startY: CGFloat, originalDB: Double)
         case trackPan(trackID: UUID, startX: CGFloat, originalPan: Double)
+        case pressTrack(trackID: UUID, startY: CGFloat)
+        case moveTrack(trackID: UUID, targetIndex: Int)
         case marker(markerID: UUID, grab: Double, originalTime: Double)
     }
 
@@ -57,6 +84,9 @@ final class TimelineView: NSView {
         var index: Int
         var track: AudioTrack
         var rect: CGRect
+        var minPitch: Int = 48
+        var maxPitch: Int = 84
+        var showPianoKeys: Bool = false
     }
 
     unowned let model: AppModel
@@ -71,25 +101,44 @@ final class TimelineView: NSView {
     var pendingLabel = ""
     var snapGuide: Double?
     var hoveredClip: UUID?
+    var hoveredNote: UUID?
     var hoverHit: Hit?
     var lastMouse: CGPoint?
     var currentCursor: TimelineCursor = .arrow
     var debugCursorName: String { currentCursor.rawValue }
+    var elastic = ElasticScrollState()
+    var markerZoomStage: (markerID: UUID, level: Int)?
+
+    struct OverviewCacheKey: Equatable {
+        var changeCount: Int
+        var width: Int
+        var height: Int
+        var clipCount: Int
+        var noteCount: Int
+        var waveReadyCount: Int
+    }
 
     let playheadView = TimelinePlayheadView()
+    let overviewPlayheadView = TimelineOverviewPlayheadView()
     let tipView = TimelineTipView()
+    var cachedOverviewKey: OverviewCacheKey?
+    var cachedOverviewWavePath: CGPath?
+    var cachedOverviewNoteBatches: [(colorIndex: Int, rects: [CGRect])] = []
     private var hoverTracking: NSTrackingArea?
     private var didInitialFit = false
     private var fittedURL: URL?
     private var lastChangeCount = -1
-    private var zoomTimer: Timer?
-    private var zoomAnimation: (fromSPP: Double, toSPP: Double, fromOffset: Double, toOffset: Double, start: CFTimeInterval, duration: CFTimeInterval)?
+    private var animDisplayLink: CADisplayLink?
+    private var animTimer: Timer?
 
     init(model: AppModel) {
         self.model = model
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
+        playheadView.wantsLayer = true
+        overviewPlayheadView.wantsLayer = true
+        addSubview(overviewPlayheadView)
         addSubview(playheadView)
         tipView.isHidden = true
         addSubview(tipView)
@@ -107,6 +156,12 @@ final class TimelineView: NSView {
     override var isOpaque: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    var displayRefreshInterval: TimeInterval {
+        let fps = window?.screen?.maximumFramesPerSecond ?? NSScreen.main?.maximumFramesPerSecond ?? 60
+        let clamped = min(max(fps, 60), 120)
+        return 1.0 / Double(clamped)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.makeFirstResponder(self)
@@ -118,7 +173,9 @@ final class TimelineView: NSView {
             didInitialFit = true
             fit()
         }
-        clampScroll()
+        if !isElasticActive {
+            clampScroll()
+        }
         updatePlayhead()
     }
 
@@ -131,6 +188,7 @@ final class TimelineView: NSView {
             _ = model.store.changeCount
             _ = model.store.url
             _ = model.selectedClips
+            _ = model.selectedNotes
             _ = model.selectedTrackID
             _ = model.selectedMarkerID
             _ = model.selectionRange
@@ -149,10 +207,16 @@ final class TimelineView: NSView {
             lastChangeCount = store.changeCount
             if store.url != fittedURL {
                 fittedURL = store.url
+                markerZoomStage = nil
                 if didInitialFit { fit() }
             }
         }
-        clampScroll()
+        if let stage = markerZoomStage, model.selectedMarkerID != stage.markerID {
+            markerZoomStage = nil
+        }
+        if !isElasticActive {
+            clampScroll()
+        }
         refresh()
     }
 
@@ -203,14 +267,37 @@ final class TimelineView: NSView {
 
     func trackRows(for proj: AudioProject? = nil) -> [TrackRow] {
         let p = proj ?? project
-        // When there is a single track, expand its height so its waveform fills the canvas nicely!
         let availableHeight = max(laneArea.height - 2, 88)
-        let singleTrackExpandedHeight = min(max(availableHeight, 120), 420)
+        let singleTrackExpandedHeight = min(max(availableHeight, 120), 480)
         var y = Metrics.topBarHeight - verticalScroll
         return p.tracks.enumerated().map { index, track in
-            let h = p.tracks.count == 1 ? singleTrackExpandedHeight : CGFloat(track.height)
+            let isSingle = p.tracks.count == 1
+            let h: CGFloat
+            if isSingle {
+                h = singleTrackExpandedHeight
+            } else if track.isMIDI && track.pianoRollExpanded {
+                h = max(CGFloat(track.height), 220)
+            } else {
+                h = CGFloat(track.height)
+            }
             defer { y += h + Metrics.laneGap }
-            return TrackRow(index: index, track: track, rect: CGRect(x: 0, y: y, width: bounds.width, height: h))
+            if track.isMIDI {
+                let boundsPitch = track.pitchBounds
+                return TrackRow(
+                    index: index,
+                    track: track,
+                    rect: CGRect(x: 0, y: y, width: bounds.width, height: h),
+                    minPitch: boundsPitch.minPitch,
+                    maxPitch: boundsPitch.maxPitch,
+                    showPianoKeys: isSingle || track.pianoRollExpanded || h >= 135
+                )
+            } else {
+                return TrackRow(
+                    index: index,
+                    track: track,
+                    rect: CGRect(x: 0, y: y, width: bounds.width, height: h)
+                )
+            }
         }
     }
 
@@ -241,60 +328,195 @@ final class TimelineView: NSView {
         )
     }
 
-    /// Button rects inside a track header (`M`, `S`, `L/R`, `Gain`, `Pan`).
-    func headerControlRects(in rowRect: CGRect) -> (mute: CGRect, solo: CGRect, stereo: CGRect, gain: CGRect, pan: CGRect) {
-        let topY = rowRect.minY + 8
-        let muteRect = CGRect(x: Metrics.headerWidth - 68, y: topY, width: 20, height: 17)
-        let soloRect = CGRect(x: Metrics.headerWidth - 45, y: topY, width: 20, height: 17)
-        let stereoRect = CGRect(x: Metrics.headerWidth - 22, y: topY, width: 17, height: 17)
-        let bottomY = min(rowRect.minY + 32, rowRect.maxY - 22)
-        let gainRect = CGRect(x: 12, y: bottomY, width: 68, height: 18)
-        let panRect = CGRect(x: 86, y: bottomY, width: 46, height: 18)
-        return (muteRect, soloRect, stereoRect, gainRect, panRect)
+    func noteRect(_ note: MIDINote, in row: TrackRow) -> CGRect {
+        let x0 = x(for: note.start)
+        let x1 = x(for: note.end)
+        let pitchCount = CGFloat(max(1, row.maxPitch - row.minPitch + 1))
+        let usableTop = row.rect.minY + Metrics.blockInset
+        let usableHeight = max(12, row.rect.height - 2 * Metrics.blockInset)
+        let noteH = max(4.5, min(usableHeight / pitchCount, 18.0))
+        let clampedPitch = min(max(note.pitch, row.minPitch), row.maxPitch)
+        let normalizedFromTop = CGFloat(row.maxPitch - clampedPitch) / max(1, pitchCount - 1)
+        let y = usableTop + normalizedFromTop * max(0, usableHeight - noteH)
+        return CGRect(
+            x: x0,
+            y: y,
+            width: max(x1 - x0, 4),
+            height: noteH
+        )
     }
 
-    // MARK: Zoom & Scroll
+    func pitch(forY y: CGFloat, in row: TrackRow) -> Int {
+        let usableTop = row.rect.minY + Metrics.blockInset
+        let usableHeight = max(12, row.rect.height - 2 * Metrics.blockInset)
+        let fracFromTop = min(max((y - usableTop) / usableHeight, 0), 1)
+        let span = Double(row.maxPitch - row.minPitch)
+        let rawPitch = Double(row.maxPitch) - Double(fracFromTop) * span
+        return min(max(Int(rawPitch.rounded()), 0), 127)
+    }
+
+    /// Button rects inside a track header (`M`, `S`, `⊶` or `🎹`, `Gain`, `Pan`).
+    func headerControlRects(in rowRect: CGRect, isMIDI: Bool = false) -> (mute: CGRect, solo: CGRect, third: CGRect, gain: CGRect, pan: CGRect) {
+        let topY = rowRect.minY + 8
+        let muteRect = CGRect(x: Metrics.headerWidth - 70, y: topY, width: 20, height: 17)
+        let soloRect = CGRect(x: Metrics.headerWidth - 47, y: topY, width: 20, height: 17)
+        let thirdRect = CGRect(x: Metrics.headerWidth - 24, y: topY, width: 19, height: 17)
+        let bottomY = isMIDI ? min(rowRect.minY + 44, rowRect.maxY - 22) : min(rowRect.minY + 32, rowRect.maxY - 22)
+        let gainRect = CGRect(x: 11, y: bottomY, width: 68, height: 18)
+        let panRect = CGRect(x: 85, y: bottomY, width: 46, height: 18)
+        return (muteRect, soloRect, thirdRect, gainRect, panRect)
+    }
+
+    // MARK: Zoom, Hard Bounds & Elastic Rubber-Band Bounce
+
+    var usableLaneWidth: Double {
+        Double(max(laneWidth - Metrics.leadIn - Metrics.endMargin, 40))
+    }
 
     var fitSecondsPerPoint: Double {
-        let width = Double(laneWidth - Metrics.leadIn - Metrics.endMargin)
+        let width = usableLaneWidth
         let total = contentDuration
         guard width > 10, total > 0 else { return 0.02 }
-        return total / width
+        return max(total / width, Metrics.minSecondsPerPoint)
+    }
+
+    func scrollOffsetRange(at spp: Double) -> ClosedRange<Double> {
+        let visible = usableLaneWidth * spp
+        return 0...max(0, contentDuration - visible)
+    }
+
+    var scrollOffsetRange: ClosedRange<Double> {
+        scrollOffsetRange(at: secondsPerPoint)
+    }
+
+    var verticalScrollRange: ClosedRange<CGFloat> {
+        let totalTrackHeight = project.tracks.count <= 1
+            ? 0
+            : project.tracks.reduce(CGFloat(0)) { $0 + CGFloat(($1.isMIDI && $1.pianoRollExpanded) ? max($1.height, 220) : $1.height) + Metrics.laneGap }
+        return 0...max(0, totalTrackHeight - laneArea.height + 24)
+    }
+
+    var isElasticActive: Bool {
+        elastic.virtualOffset != nil || elastic.virtualLogSPP != nil || elastic.animation != nil
     }
 
     var isFitted: Bool {
-        let fitSPP = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
+        let fitSPP = fitSecondsPerPoint
         return abs(secondsPerPoint - fitSPP) / max(fitSPP, 1e-9) < 0.02
-            && scrollOffset < max(0.05, contentDuration * 0.01)
+            && abs(scrollOffset) < max(0.05, contentDuration * 0.01)
+    }
+
+    static func rubberBand<T: BinaryFloatingPoint>(_ value: T, in range: ClosedRange<T>, limit: T) -> T {
+        guard limit > 0 else { return min(max(value, range.lowerBound), range.upperBound) }
+        if value < range.lowerBound {
+            return range.lowerBound - limit * T(1.0 - exp(-Double((range.lowerBound - value) / limit)))
+        }
+        if value > range.upperBound {
+            return range.upperBound + limit * T(1.0 - exp(-Double((value - range.upperBound) / limit)))
+        }
+        return value
+    }
+
+    private var currentPose: ElasticScrollState.Pose {
+        ElasticScrollState.Pose(secondsPerPoint: secondsPerPoint, scrollOffset: scrollOffset, verticalScroll: verticalScroll)
+    }
+
+    private var restingPose: ElasticScrollState.Pose {
+        let fitSPP = fitSecondsPerPoint
+        let clampedSPP = min(max(secondsPerPoint, Metrics.minSecondsPerPoint), fitSPP)
+        let xRange = scrollOffsetRange(at: clampedSPP)
+        let clampedOffset = min(max(scrollOffset, xRange.lowerBound), xRange.upperBound)
+        let yRange = verticalScrollRange
+        let clampedV = min(max(verticalScroll, yRange.lowerBound), yRange.upperBound)
+        return ElasticScrollState.Pose(secondsPerPoint: clampedSPP, scrollOffset: clampedOffset, verticalScroll: clampedV)
     }
 
     func fit(animate: Bool = false) {
-        let targetSPP = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
+        markerZoomStage = nil
+        let targetSPP = fitSecondsPerPoint
         applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: 0, animate: animate)
     }
 
     func zoom(toRange range: ClosedRange<Double>, animate: Bool = false) {
         let span = max(range.upperBound - range.lowerBound, 0.02)
-        let width = Double(max(laneWidth - Metrics.leadIn - Metrics.endMargin, 40))
-        let targetSPP = max(span / (width * 0.85), Metrics.minSecondsPerPoint)
+        let width = usableLaneWidth
+        let fitSPP = fitSecondsPerPoint
+        let targetSPP = min(max(span / (width * 0.85), Metrics.minSecondsPerPoint), fitSPP)
         let targetOffset = max(0, range.lowerBound - span * 0.075)
         applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
     }
 
-    /// Frame the whole project smoothly; when already fitted, zoom to the active selection range or a window around the playhead (`z` shortcut, same idiom as OSCScore & ScoreFollower).
+    /// `Z` shortcut:
+    /// - When a marker is selected (`model.selectedMarkerID != nil`), cycles through **3 levels**:
+    ///   1. **15s window** centered around the marker (`plage de 15s`),
+    ///   2. **Zone defined by the marker** (`marker.time` to next marker or end of piece),
+    ///   3. **Whole piece** (`la piste entière`).
+    /// - Otherwise toggles between **Whole piece (Fit)** and **15s window around playhead** (or active selection range).
     func toggleZoomToFitOrPlayhead(toggleWindow: Double = 15.0, animate: Bool = true) {
-        let baseSPP = zoomAnimation?.toSPP ?? secondsPerPoint
-        let baseOffset = zoomAnimation?.toOffset ?? scrollOffset
-        let fitSPP = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
-        let currentlyFitted = abs(baseSPP - fitSPP) / max(fitSPP, 1e-9) < 0.02
-            && baseOffset < max(0.05, contentDuration * 0.01)
+        let fitSPP = fitSecondsPerPoint
+        let width = usableLaneWidth
+
+        if let markerID = model.selectedMarkerID,
+           let marker = project.markers.first(where: { $0.id == markerID }) {
+            let nextLevel: Int
+            if let currentStage = markerZoomStage, currentStage.markerID == markerID {
+                nextLevel = (currentStage.level % 3) + 1
+            } else {
+                nextLevel = 1
+            }
+            markerZoomStage = (markerID: markerID, level: nextLevel)
+
+            switch nextLevel {
+            case 1:
+                let win = min(15.0, contentDuration)
+                let targetSPP = min(max(win / width, Metrics.minSecondsPerPoint), fitSPP)
+                let visible = width * targetSPP
+                let xRange = scrollOffsetRange(at: targetSPP)
+                let targetOffset = min(max(marker.time - visible * 0.5, xRange.lowerBound), xRange.upperBound)
+                model.statusMessage = "Zoom marqueur « \(marker.name) » (1/3) : plage de 15s"
+                applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
+
+            case 2:
+                let sorted = project.markers.sorted { $0.time < $1.time }
+                let zoneStart: Double
+                let zoneEnd: Double
+                if let nextMarker = sorted.first(where: { $0.time > marker.time + 0.05 }) {
+                    zoneStart = marker.time
+                    zoneEnd = nextMarker.time
+                } else if marker.time < contentDuration - 0.1 {
+                    zoneStart = marker.time
+                    zoneEnd = contentDuration
+                } else if let prevMarker = sorted.last(where: { $0.time < marker.time - 0.05 }) {
+                    zoneStart = prevMarker.time
+                    zoneEnd = marker.time
+                } else {
+                    zoneStart = 0
+                    zoneEnd = contentDuration
+                }
+                let span = max(0.5, zoneEnd - zoneStart)
+                let targetSPP = min(max(span / width, Metrics.minSecondsPerPoint), fitSPP)
+                let xRange = scrollOffsetRange(at: targetSPP)
+                let targetOffset = min(max(zoneStart, xRange.lowerBound), xRange.upperBound)
+                model.statusMessage = "Zoom marqueur « \(marker.name) » (2/3) : zone (\(TimeFormat.shortDuration(span)))"
+                applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
+
+            default:
+                model.statusMessage = "Zoom marqueur « \(marker.name) » (3/3) : piste entière"
+                applyZoomTarget(secondsPerPoint: fitSPP, scrollOffset: 0, animate: animate)
+            }
+            return
+        }
+
+        markerZoomStage = nil
+        let basePose = elastic.animation?.to ?? currentPose
+        let currentlyFitted = abs(basePose.secondsPerPoint - fitSPP) / max(fitSPP, 1e-9) < 0.02
+            && abs(basePose.scrollOffset) < max(0.05, contentDuration * 0.01)
 
         if !currentlyFitted {
             applyZoomTarget(secondsPerPoint: fitSPP, scrollOffset: 0, animate: animate)
             return
         }
 
-        // Already fitted: zoom into active range selection if narrower than the project, else around playhead
         if let range = model.selectionRange,
            range.upperBound > range.lowerBound + 0.01,
            (range.upperBound - range.lowerBound) < contentDuration * 0.92 {
@@ -302,94 +524,257 @@ final class TimelineView: NSView {
             return
         }
 
-        let usableWidth = Double(max(laneWidth - Metrics.leadIn - Metrics.endMargin, 40))
         let win = contentDuration > toggleWindow ? toggleWindow : max(contentDuration * 0.25, 0.2)
-        let targetSPP = max(min(win / usableWidth, fitSPP * 0.25), Metrics.minSecondsPerPoint)
-        let visible = usableWidth * targetSPP
-        let upper = max(0, contentDuration - visible * 0.5)
-        let targetOffset = min(max(0, model.playhead - visible * 0.5), upper)
+        let targetSPP = max(min(win / width, fitSPP * 0.25), Metrics.minSecondsPerPoint)
+        let visible = width * targetSPP
+        let xRange = scrollOffsetRange(at: targetSPP)
+        let targetOffset = min(max(model.playhead - visible * 0.5, xRange.lowerBound), xRange.upperBound)
         applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
     }
 
-    private func applyZoomTarget(secondsPerPoint targetSPP: Double, scrollOffset targetOffset: Double, animate: Bool) {
-        cancelZoomAnimation()
+    func applyZoomTarget(secondsPerPoint targetSPP: Double, scrollOffset targetOffset: Double, animate: Bool) {
+        cancelElasticAnimation()
+        elastic.virtualOffset = nil
+        elastic.virtualVertical = nil
+        elastic.virtualLogSPP = nil
+
+        let fitSPP = fitSecondsPerPoint
+        let clampedSPP = min(max(targetSPP, Metrics.minSecondsPerPoint), fitSPP)
+        let xRange = scrollOffsetRange(at: clampedSPP)
+        let clampedOffset = min(max(targetOffset, xRange.lowerBound), xRange.upperBound)
+
         let isAutomated = CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--snapshot")
         guard animate, window != nil, !isAutomated,
-              abs(targetSPP - secondsPerPoint) > 1e-7 || abs(targetOffset - scrollOffset) > 1e-4 else {
-            secondsPerPoint = targetSPP
-            scrollOffset = targetOffset
+              abs(clampedSPP - secondsPerPoint) > 1e-7 || abs(clampedOffset - scrollOffset) > 1e-4 else {
+            secondsPerPoint = clampedSPP
+            scrollOffset = clampedOffset
             clampScroll()
             refresh()
             return
         }
-        zoomAnimation = (
-            fromSPP: secondsPerPoint,
-            toSPP: targetSPP,
-            fromOffset: scrollOffset,
-            toOffset: targetOffset,
-            start: CACurrentMediaTime(),
-            duration: 0.18
+
+        let target = ElasticScrollState.Pose(
+            secondsPerPoint: clampedSPP,
+            scrollOffset: clampedOffset,
+            verticalScroll: verticalScroll
         )
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stepZoomAnimation() }
+        startElasticAnimation(to: target, duration: 0.18, bounce: false)
+    }
+
+    func startElasticAnimation(to target: ElasticScrollState.Pose, duration: CFTimeInterval, bounce: Bool) {
+        elastic.animation = (
+            from: currentPose,
+            to: target,
+            start: CACurrentMediaTime(),
+            duration: duration,
+            bounce: bounce
+        )
+        ensureAnimationTimerRunning()
+    }
+
+    func springBack() {
+        elastic.virtualOffset = nil
+        elastic.virtualVertical = nil
+        elastic.virtualLogSPP = nil
+        let target = restingPose
+        guard abs(target.secondsPerPoint - secondsPerPoint) > 1e-7
+            || abs(target.scrollOffset - scrollOffset) > 1e-4
+            || abs(target.verticalScroll - verticalScroll) > 0.2 else {
+            clampScroll()
+            return
         }
-        RunLoop.main.add(timer, forMode: .common)
-        zoomTimer = timer
+        startElasticAnimation(to: target, duration: 0.24, bounce: false)
     }
 
-    private func cancelZoomAnimation() {
-        zoomTimer?.invalidate()
-        zoomTimer = nil
-        zoomAnimation = nil
+    func bump(zoomingOut: Bool, around viewX: CGFloat) {
+        guard elastic.animation == nil else { return }
+        let anchor = time(for: viewX)
+        var to = currentPose
+        to.secondsPerPoint = secondsPerPoint * (zoomingOut ? 1.045 : 0.955)
+        to.scrollOffset = anchor - Double(viewX - Metrics.headerWidth - Metrics.leadIn) * to.secondsPerPoint
+        startElasticAnimation(to: to, duration: 0.20, bounce: true)
     }
 
-    private func stepZoomAnimation() {
-        guard let anim = zoomAnimation else {
-            cancelZoomAnimation()
+    func cancelElasticAnimation() {
+        animDisplayLink?.invalidate()
+        animDisplayLink = nil
+        animTimer?.invalidate()
+        animTimer = nil
+        if let anim = elastic.animation, anim.bounce {
+            applyPose(anim.from)
+        }
+        elastic.animation = nil
+    }
+
+    private func ensureAnimationTimerRunning() {
+        guard animDisplayLink == nil, animTimer == nil else { return }
+        if window != nil {
+            let link = displayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            animDisplayLink = link
+        } else {
+            let timer = Timer(timeInterval: displayRefreshInterval, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.stepElasticAnimation() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            animTimer = timer
+        }
+    }
+
+    @objc private func handleDisplayLink(_ link: CADisplayLink) {
+        stepElasticAnimation()
+    }
+
+    private func stepElasticAnimation() {
+        guard let anim = elastic.animation else {
+            cancelElasticAnimation()
             return
         }
         let t = min(max((CACurrentMediaTime() - anim.start) / max(anim.duration, 1e-6), 0), 1)
-        if t >= 1 {
-            secondsPerPoint = anim.toSPP
-            scrollOffset = anim.toOffset
-            cancelZoomAnimation()
-            clampScroll()
-            refresh()
-            return
-        }
-        let f = 1 - pow(1 - t, 3) // cubic ease-out
-        let logFrom = log(max(anim.fromSPP, 1e-9))
-        let logTo = log(max(anim.toSPP, 1e-9))
+        let f: Double = anim.bounce ? sin(.pi * t) : (1.0 - pow(1.0 - t, 3.0))
+
+        let logFrom = log(max(anim.from.secondsPerPoint, 1e-9))
+        let logTo = log(max(anim.to.secondsPerPoint, 1e-9))
         let spp = exp(logFrom + (logTo - logFrom) * f)
-        let u = abs(anim.toSPP - anim.fromSPP) > 1e-9 ? (spp - anim.fromSPP) / (anim.toSPP - anim.fromSPP) : f
-        secondsPerPoint = spp
-        scrollOffset = anim.fromOffset + (anim.toOffset - anim.fromOffset) * u
-        clampScroll()
+        let u = abs(anim.to.secondsPerPoint - anim.from.secondsPerPoint) > 1e-9
+            ? (spp - anim.from.secondsPerPoint) / (anim.to.secondsPerPoint - anim.from.secondsPerPoint)
+            : f
+
+        let pose = ElasticScrollState.Pose(
+            secondsPerPoint: spp,
+            scrollOffset: anim.from.scrollOffset + (anim.to.scrollOffset - anim.from.scrollOffset) * u,
+            verticalScroll: anim.from.verticalScroll + (anim.to.verticalScroll - anim.from.verticalScroll) * CGFloat(f)
+        )
+        applyPose(pose)
+
+        if t >= 1.0 {
+            let finalPose = anim.bounce ? anim.from : anim.to
+            elastic.animation = nil
+            animDisplayLink?.invalidate()
+            animDisplayLink = nil
+            animTimer?.invalidate()
+            animTimer = nil
+            applyPose(finalPose)
+            clampScroll()
+        }
+    }
+
+    private func applyPose(_ p: ElasticScrollState.Pose) {
+        secondsPerPoint = p.secondsPerPoint
+        scrollOffset = p.scrollOffset
+        verticalScroll = p.verticalScroll
         refresh()
     }
 
     func zoom(by factor: CGFloat, at viewX: CGFloat) {
         guard factor > 0, factor.isFinite else { return }
-        cancelZoomAnimation()
+        markerZoomStage = nil
+        cancelElasticAnimation()
         let anchor = time(for: viewX)
-        let widest = max(fitSecondsPerPoint * 1.25, secondsPerPoint, Metrics.minSecondsPerPoint)
-        secondsPerPoint = min(max(secondsPerPoint / Double(factor), Metrics.minSecondsPerPoint), widest)
+        let widest = max(fitSecondsPerPoint, Metrics.minSecondsPerPoint)
+        let wanted = secondsPerPoint / Double(factor)
+        let clamped = min(max(wanted, Metrics.minSecondsPerPoint), widest)
+        if abs(clamped - secondsPerPoint) < 1e-7, abs(wanted - clamped) > 1e-7 {
+            bump(zoomingOut: factor < 1, around: viewX)
+            return
+        }
+        secondsPerPoint = clamped
         scrollOffset = anchor - Double(viewX - Metrics.headerWidth - Metrics.leadIn) * secondsPerPoint
         clampScroll()
         refresh()
     }
 
+    func elasticScroll(dx: CGFloat, dy: CGFloat, phase: NSEvent.Phase, momentum: NSEvent.Phase) {
+        if phase.contains(.began) || phase.contains(.mayBegin) {
+            cancelElasticAnimation()
+            elastic.ignoreMomentum = false
+            elastic.virtualOffset = scrollOffset
+            elastic.virtualVertical = verticalScroll
+        }
+        if !momentum.isEmpty, elastic.ignoreMomentum { return }
+        if elastic.virtualOffset == nil {
+            elastic.virtualOffset = scrollOffset
+            elastic.virtualVertical = verticalScroll
+        }
+
+        elastic.virtualOffset! -= Double(dx) * secondsPerPoint
+        if project.tracks.count > 1 {
+            elastic.virtualVertical! -= dy
+        }
+
+        let xRange = scrollOffsetRange
+        let yRange = verticalScrollRange
+        let limitX = Double(Metrics.rubberPixels) * secondsPerPoint
+        scrollOffset = Self.rubberBand(elastic.virtualOffset!, in: xRange, limit: limitX)
+        verticalScroll = Self.rubberBand(elastic.virtualVertical!, in: yRange, limit: Metrics.rubberPixels)
+        refresh()
+
+        let outsideX = scrollOffset < xRange.lowerBound - 1e-5 || scrollOffset > xRange.upperBound + 1e-5
+        let outsideY = verticalScroll < yRange.lowerBound - 0.1 || verticalScroll > yRange.upperBound + 0.1
+        let outside = outsideX || outsideY
+
+        if phase.contains(.ended) || phase.contains(.cancelled) {
+            if outside {
+                elastic.ignoreMomentum = true
+                springBack()
+            } else if momentum.isEmpty {
+                elastic.virtualOffset = nil
+                elastic.virtualVertical = nil
+            }
+        } else if !momentum.isEmpty {
+            let clampedVirtX = min(max(elastic.virtualOffset!, xRange.lowerBound), xRange.upperBound)
+            let clampedVirtY = min(max(elastic.virtualVertical!, yRange.lowerBound), yRange.upperBound)
+            let excessX = abs(elastic.virtualOffset! - clampedVirtX) / max(secondsPerPoint, 1e-9)
+            let excessY = Double(abs(elastic.virtualVertical! - clampedVirtY))
+            if momentum.contains(.ended) || momentum.contains(.cancelled) || max(CGFloat(excessX), CGFloat(excessY)) > Metrics.rubberPixels * 0.55 {
+                elastic.ignoreMomentum = !momentum.contains(.ended)
+                if outside {
+                    springBack()
+                } else {
+                    elastic.virtualOffset = nil
+                    elastic.virtualVertical = nil
+                }
+            }
+        }
+    }
+
+    func elasticZoom(by factor: CGFloat, around viewX: CGFloat, phase: NSEvent.Phase, momentum: NSEvent.Phase) {
+        markerZoomStage = nil
+        if phase.contains(.began) || elastic.virtualLogSPP == nil {
+            cancelElasticAnimation()
+            elastic.virtualLogSPP = log(max(secondsPerPoint, Metrics.minSecondsPerPoint))
+        }
+        elastic.zoomAnchorTime = time(for: viewX)
+        elastic.zoomAnchorX = viewX
+        elastic.virtualLogSPP! -= log(Double(max(factor, 0.01)))
+
+        let fitSPP = fitSecondsPerPoint
+        let logBounds = log(Metrics.minSecondsPerPoint)...log(max(fitSPP, Metrics.minSecondsPerPoint * 1.01))
+        secondsPerPoint = exp(Self.rubberBand(elastic.virtualLogSPP!, in: logBounds, limit: Metrics.rubberZoomLog))
+        scrollOffset = elastic.zoomAnchorTime - Double(viewX - Metrics.headerWidth - Metrics.leadIn) * secondsPerPoint
+        let yRange = verticalScrollRange
+        verticalScroll = min(max(verticalScroll, yRange.lowerBound), yRange.upperBound)
+        refresh()
+
+        let over = phase.contains(.ended) || phase.contains(.cancelled) || momentum.contains(.ended) || momentum.contains(.cancelled)
+        if over || (phase.isEmpty && momentum.isEmpty) {
+            elastic.virtualLogSPP = nil
+            springBack()
+        }
+    }
+
     func clampScroll() {
-        let visible = Double(max(laneWidth - Metrics.leadIn - Metrics.endMargin, 10)) * secondsPerPoint
-        let upper = max(0, contentDuration - visible * 0.5)
-        let clamped = min(max(scrollOffset, 0), upper)
+        let fitSPP = fitSecondsPerPoint
+        if secondsPerPoint > fitSPP {
+            secondsPerPoint = fitSPP
+        }
+        let xRange = scrollOffsetRange(at: secondsPerPoint)
+        let clamped = min(max(scrollOffset, xRange.lowerBound), xRange.upperBound)
         if clamped != scrollOffset { scrollOffset = clamped }
 
-        let totalTrackHeight = project.tracks.count <= 1
-            ? 0
-            : project.tracks.reduce(CGFloat(0)) { $0 + CGFloat($1.height) + Metrics.laneGap }
-        let maxV = max(0, totalTrackHeight - laneArea.height + 24)
-        let clampedV = min(max(verticalScroll, 0), maxV)
+        let yRange = verticalScrollRange
+        let clampedV = min(max(verticalScroll, yRange.lowerBound), yRange.upperBound)
         if clampedV != verticalScroll { verticalScroll = clampedV }
     }
 
@@ -415,23 +800,58 @@ final class TimelineView: NSView {
 
     func updatePlayhead(_ t: Double? = nil) {
         let time = t ?? model.playhead
-        if case .none = drag, model.transportPlaying {
+        if case .none = drag, !isElasticActive, model.transportPlaying {
             let px = x(for: time)
             if px > bounds.maxX - 24 || px < Metrics.headerWidth + Metrics.leadIn - 1 {
-                scrollOffset = max(0, time - Double(60) * secondsPerPoint)
-                clampScroll()
+                let xRange = scrollOffsetRange
+                scrollOffset = min(max(time - Double(60) * secondsPerPoint, xRange.lowerBound), xRange.upperBound)
                 needsDisplay = true
             }
         }
-        let px = x(for: time).rounded()
-        playheadView.isHidden = px < Metrics.headerWidth - 0.5 || px > bounds.maxX
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        let px = x(for: time)
+        let hideMain = px < Metrics.headerWidth - 0.5 || px > bounds.maxX
+        if playheadView.isHidden != hideMain {
+            playheadView.isHidden = hideMain
+        }
         let frame = CGRect(
             x: px - TimelinePlayheadView.halfWidth,
             y: Metrics.overviewHeight,
             width: TimelinePlayheadView.halfWidth * 2 + 1,
             height: max(0, bounds.height - Metrics.overviewHeight)
         )
-        if frame != playheadView.frame { playheadView.frame = frame }
+        if frame != playheadView.frame {
+            playheadView.frame = frame
+        }
+
+        let area = overviewArea
+        let ovX = overviewX(for: time)
+        let hideOverview = area.width <= 20 || project.totalDuration <= 0 || ovX < area.minX || ovX > area.maxX
+        if overviewPlayheadView.isHidden != hideOverview {
+            overviewPlayheadView.isHidden = hideOverview
+        }
+        let ovFrame = CGRect(
+            x: ovX - 0.75,
+            y: area.minY,
+            width: 1.5,
+            height: max(0, area.height)
+        )
+        if ovFrame != overviewPlayheadView.frame {
+            overviewPlayheadView.frame = ovFrame
+        }
+    }
+}
+
+final class TimelineOverviewPlayheadView: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.playhead.setFill()
+        bounds.fill()
     }
 }
 

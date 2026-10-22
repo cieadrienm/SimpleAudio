@@ -90,6 +90,7 @@ public enum AudioExportFormat: String, CaseIterable, Codable, Sendable, Identifi
     case alac
     case flac
     case mp3
+    case mid
 
     public var id: String { rawValue }
 
@@ -102,6 +103,7 @@ public enum AudioExportFormat: String, CaseIterable, Codable, Sendable, Identifi
         case .alac: return "M4A (Apple Lossless)"
         case .flac: return "FLAC"
         case .mp3: return "MP3"
+        case .mid: return "MIDI Standard (.mid)"
         }
     }
 
@@ -113,13 +115,14 @@ public enum AudioExportFormat: String, CaseIterable, Codable, Sendable, Identifi
         case .m4a, .alac: return "m4a"
         case .flac: return "flac"
         case .mp3: return "mp3"
+        case .mid: return "mid"
         }
     }
 
     public var supportsBitDepth: Bool {
         switch self {
         case .wav, .aiff, .caf, .alac, .flac: return true
-        case .m4a, .mp3: return false
+        case .m4a, .mp3, .mid: return false
         }
     }
 }
@@ -199,7 +202,7 @@ public enum AudioExporter {
         let start = options.range?.lowerBound ?? 0
         let end = options.range?.upperBound ?? plan.totalDuration
         let duration = end - start
-        guard duration > 0.001, !plan.tracks.isEmpty else {
+        guard duration > 0.001, plan.hasRenderableContent else {
             throw AudioExportError.emptyProject
         }
 
@@ -295,6 +298,22 @@ public enum AudioExporter {
         options: ExportOptions = ExportOptions(),
         baseURL: URL? = nil
     ) throws -> ExportResult {
+        if options.format == .mid {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = MIDIFileCodec.encode(project, range: options.range)
+            try data.write(to: destination, options: .atomic)
+            let dur = options.range.map { max(0, $0.upperBound - $0.lowerBound) } ?? project.totalDuration
+            return ExportResult(
+                url: destination,
+                format: .mid,
+                duration: dur,
+                sampleRate: options.sampleRate,
+                channels: options.channels,
+                peakDB: 0,
+                integratedLUFS: -24,
+                appliedGainDB: 0
+            )
+        }
         let ao = options.audioExportOptions
         let mix = try renderMixdown(project: project, projectURL: baseURL, options: ao, pcmStore: .shared)
         try writeAudioFile(left: mix.left, right: mix.right, to: destination, options: ao)
@@ -336,6 +355,13 @@ public enum AudioExporter {
         pcmStore: PCMStore = .shared,
         progress: (@Sendable (Double) -> Void)? = nil
     ) throws -> (url: URL, peakDB: Double, lufs: Double) {
+        if options.format == .mid {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = MIDIFileCodec.encode(project, range: options.range)
+            try data.write(to: destination, options: .atomic)
+            progress?(1.0)
+            return (destination, 0, -24)
+        }
         let mix = try renderMixdown(project: project, projectURL: projectURL, options: options, pcmStore: pcmStore, progress: progress)
         try writeAudioFile(
             left: mix.left,
@@ -358,7 +384,7 @@ public enum AudioExporter {
     ) throws -> [URL] {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var written: [URL] = []
-        for (i, track) in project.tracks.enumerated() where !track.mute && !track.clips.isEmpty {
+        for (i, track) in project.tracks.enumerated() where !track.mute && (!track.clips.isEmpty || !track.notes.isEmpty) {
             var single = project
             var soloTrack = track
             soloTrack.solo = false
@@ -370,6 +396,51 @@ public enum AudioExporter {
             written.append(outURL)
         }
         return written
+    }
+
+    /// Renders a single MIDI track into a 24-bit stereo WAV file and returns the corresponding `AudioClip`.
+    public static func bounceMIDITrack(
+        _ track: AudioTrack,
+        in project: AudioProject,
+        to destinationWAV: URL,
+        sampleRate: Double = 48_000
+    ) throws -> AudioClip {
+        guard !track.notes.isEmpty else {
+            throw AudioExportError.emptyProject
+        }
+        var single = project
+        var cleanTrack = track
+        cleanTrack.mute = false
+        cleanTrack.solo = false
+        cleanTrack.gainDB = 0
+        cleanTrack.pan = 0
+        single.masterGainDB = 0
+        single.tracks = [cleanTrack]
+
+        let minStart = max(0, (track.notes.map(\.start).min() ?? 0))
+        let maxEnd = max(minStart + 0.1, (track.notes.map(\.end).max() ?? 1.0) + 0.35)
+        let opts = AudioExportOptions(
+            format: .wav,
+            sampleRate: sampleRate,
+            bitDepth: 24,
+            channels: 2,
+            normalization: .peak,
+            range: minStart...maxEnd
+        )
+        _ = try export(project: single, projectURL: nil, to: destinationWAV, options: opts)
+        let clipDuration = maxEnd - minStart
+        return AudioClip(
+            name: "\(track.name) (Audio)",
+            path: destinationWAV.path,
+            offset: minStart,
+            sourceStart: 0,
+            duration: clipDuration,
+            sourceDuration: clipDuration,
+            gainDB: 0,
+            fadeIn: 0.01,
+            fadeOut: 0.04,
+            fadeShape: .cosine
+        )
     }
 
     /// Writes planar `(left, right)` float samples to `destination` using Core Audio (`AVAudioFile` / `ffmpeg` for MP3).
@@ -484,7 +555,7 @@ public enum AudioExporter {
                 AVNumberOfChannelsKey: ch,
                 AVLinearPCMBitDepthKey: depth == 32 ? 24 : depth,
             ]
-        case .mp3:
+        case .mp3, .mid:
             return [:]
         }
     }

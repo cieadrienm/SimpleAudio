@@ -4,12 +4,56 @@ extension AudioProject {
     // MARK: Track operations
 
     @discardableResult
-    public mutating func addTrack(name: String? = nil, at index: Int? = nil) -> UUID {
+    public mutating func addTrack(
+        name: String? = nil,
+        kind: TrackKind = .audio,
+        program: Int = 0,
+        channel: Int? = nil,
+        isDrum: Bool = false,
+        at index: Int? = nil
+    ) -> UUID {
         let idx = index.map { min(max($0, 0), tracks.count) } ?? tracks.count
-        let defaultName = name ?? "Piste \(tracks.count + 1)"
-        let track = AudioTrack(name: defaultName, colorIndex: tracks.count)
+        let usedChannels = Set(tracks.filter(\.isMIDI).map(\.channel))
+        let resolvedChannel: Int
+        if isDrum {
+            resolvedChannel = 9
+        } else if let ch = channel {
+            resolvedChannel = min(max(ch, 0), 15)
+        } else if kind == .midi {
+            resolvedChannel = (0..<16).first { $0 != 9 && !usedChannels.contains($0) } ?? (tracks.count % 16)
+        } else {
+            resolvedChannel = 0
+        }
+        let defaultName: String
+        if let n = name?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+            defaultName = n
+        } else if kind == .midi {
+            defaultName = isDrum ? "Batterie GM" : GeneralMIDI.programName(program)
+        } else {
+            defaultName = "Piste \(tracks.count + 1)"
+        }
+        let track = AudioTrack(
+            name: defaultName,
+            colorIndex: tracks.count % 8,
+            height: kind == .midi ? 94 : 88,
+            kind: kind,
+            channel: resolvedChannel,
+            program: min(max(program, 0), 127),
+            isDrum: isDrum || resolvedChannel == 9
+        )
         tracks.insert(track, at: idx)
         return track.id
+    }
+
+    @discardableResult
+    public mutating func addMIDITrack(
+        name: String? = nil,
+        program: Int = 0,
+        channel: Int? = nil,
+        isDrum: Bool = false,
+        at index: Int? = nil
+    ) -> UUID {
+        addTrack(name: name, kind: .midi, program: program, channel: channel, isDrum: isDrum, at: index)
     }
 
     public mutating func removeTrack(_ id: UUID) {
@@ -17,11 +61,20 @@ extension AudioProject {
         tracks.remove(at: i)
     }
 
+    /// Moves track `id` to `destination` (0-based index, clamped to valid track bounds).
     public mutating func moveTrack(_ id: UUID, to destination: Int) {
         guard let from = trackIndex(of: id) else { return }
         let track = tracks.remove(at: from)
         let clamped = min(max(destination, 0), tracks.count)
         tracks.insert(track, at: clamped)
+    }
+
+    /// Shifts track `id` up (`delta < 0`) or down (`delta > 0`) in the track list.
+    public mutating func moveTrack(_ id: UUID, by delta: Int) {
+        guard let from = trackIndex(of: id) else { return }
+        let target = min(max(from + delta, 0), max(0, tracks.count - 1))
+        guard target != from else { return }
+        moveTrack(id, to: target)
     }
 
     @discardableResult
@@ -30,12 +83,17 @@ extension AudioProject {
         var copy = tracks[i]
         copy.id = UUID()
         copy.name = copy.name + " (copie)"
-        copy.colorIndex = tracks.count
+        copy.colorIndex = (copy.colorIndex + 1) % 8
         copy.locked = false
         copy.clips = copy.clips.map { c in
             var cc = c
             cc.id = UUID()
             return cc
+        }
+        copy.notes = copy.notes.map { n in
+            var nc = n
+            nc.id = UUID()
+            return nc
         }
         tracks.insert(copy, at: i + 1)
         return copy.id
@@ -51,7 +109,12 @@ extension AudioProject {
         locked: Bool? = nil,
         stereoSplit: Bool? = nil,
         height: Double? = nil,
-        colorIndex: Int? = nil
+        colorIndex: Int? = nil,
+        program: Int? = nil,
+        channel: Int? = nil,
+        isDrum: Bool? = nil,
+        transpose: Int? = nil,
+        pianoRollExpanded: Bool? = nil
     ) {
         guard let i = trackIndex(of: id) else { return }
         if let name, !name.isEmpty { tracks[i].name = name }
@@ -61,8 +124,46 @@ extension AudioProject {
         if let solo { tracks[i].solo = solo }
         if let locked { tracks[i].locked = locked }
         if let stereoSplit { tracks[i].stereoSplit = stereoSplit }
-        if let height { tracks[i].height = min(max(height, 48), 260) }
-        if let colorIndex { tracks[i].colorIndex = max(0, colorIndex) }
+        if let height { tracks[i].height = min(max(height, 48), 340) }
+        if let colorIndex { tracks[i].colorIndex = ((colorIndex % 8) + 8) % 8 }
+        if let program { tracks[i].program = min(max(program, 0), 127) }
+        if let channel {
+            let ch = min(max(channel, 0), 15)
+            tracks[i].channel = ch
+            tracks[i].isDrum = (ch == 9)
+            for ni in tracks[i].notes.indices {
+                tracks[i].notes[ni].channel = ch
+            }
+        }
+        if let isDrum {
+            tracks[i].isDrum = isDrum
+            if isDrum {
+                tracks[i].channel = 9
+            } else if tracks[i].channel == 9 {
+                tracks[i].channel = i % 8
+            }
+        }
+        if let transpose { tracks[i].transpose = min(max(transpose, -36), 36) }
+        if let pianoRollExpanded {
+            tracks[i].pianoRollExpanded = pianoRollExpanded
+            tracks[i].height = pianoRollExpanded ? 236 : 94
+        }
+    }
+
+    public mutating func setTrackProgram(_ id: UUID, program: Int, isDrum: Bool? = nil) {
+        setTrack(id, program: program, isDrum: isDrum)
+    }
+
+    public mutating func setTrackChannel(_ id: UUID, channel: Int, isDrum: Bool? = nil) {
+        setTrack(id, channel: channel, isDrum: isDrum)
+    }
+
+    public mutating func setTrackTranspose(_ id: UUID, semitones: Int) {
+        setTrack(id, transpose: semitones)
+    }
+
+    public mutating func setTrackPianoRollExpanded(_ id: UUID, _ expanded: Bool) {
+        setTrack(id, pianoRollExpanded: expanded)
     }
 
     // MARK: Clip operations
@@ -72,10 +173,10 @@ extension AudioProject {
         let ti: Int
         if let trackID, let idx = trackIndex(of: trackID) {
             ti = idx
-        } else if !tracks.isEmpty {
-            ti = 0
+        } else if let firstAudioIdx = tracks.firstIndex(where: { !$0.isMIDI }) {
+            ti = firstAudioIdx
         } else {
-            let newID = addTrack()
+            let newID = addTrack(kind: .audio)
             ti = trackIndex(of: newID) ?? 0
         }
         guard !tracks[ti].locked else { return clip.id }
@@ -140,7 +241,7 @@ extension AudioProject {
         guard let (ti, ci) = clipLocation(of: id), !tracks[ti].locked else { return }
         var c = tracks[ti].clips[ci]
         c.offset = max(0, newOffset)
-        if let targetTrackID, let destTI = trackIndex(of: targetTrackID), destTI != ti {
+        if let targetTrackID, let destTI = trackIndex(of: targetTrackID), destTI != ti, !tracks[destTI].isMIDI {
             guard !tracks[destTI].locked else { return }
             tracks[ti].clips.remove(at: ci)
             tracks[destTI].clips.append(c)
@@ -302,7 +403,6 @@ extension AudioProject {
         var a = tracks[tiA].clips[firstIdx]
         var b = tracks[tiA].clips[secondIdx]
         let d = min(max(0.01, duration), min(a.duration, b.duration) * 0.5)
-        // If they touch or nearly touch, overlap them by d/2 each (when source handles allow) or shift B left by d.
         if abs(b.offset - a.end) < d {
             let overlap = b.offset < a.end ? (a.end - b.offset) : d
             if b.offset >= a.end {
@@ -316,6 +416,244 @@ extension AudioProject {
             tracks[tiA].clips[secondIdx] = b
             sortClips(inTrackAt: tiA)
         }
+    }
+
+    // MARK: MIDI Note operations
+
+    @discardableResult
+    public mutating func addNote(_ note: MIDINote, toTrack trackID: UUID? = nil) -> UUID {
+        let ti: Int
+        if let trackID, let idx = trackIndex(of: trackID) {
+            ti = idx
+        } else if let firstMIDIIdx = tracks.firstIndex(where: \.isMIDI) {
+            ti = firstMIDIIdx
+        } else {
+            let newID = addMIDITrack()
+            ti = trackIndex(of: newID) ?? 0
+        }
+        guard !tracks[ti].locked else { return note.id }
+        tracks[ti].kind = .midi
+        var n = note
+        n.channel = tracks[ti].channel
+        tracks[ti].notes.append(n)
+        tracks[ti].sortNotes()
+        return n.id
+    }
+
+    @discardableResult
+    public mutating func addNote(
+        toTrack trackID: UUID,
+        pitch: Int,
+        start: Double,
+        duration: Double,
+        velocity: Int = 100
+    ) -> UUID? {
+        guard let ti = trackIndex(of: trackID), !tracks[ti].locked else { return nil }
+        tracks[ti].kind = .midi
+        let note = MIDINote(
+            pitch: pitch,
+            start: max(0, start),
+            duration: max(MIDINote.minDuration, duration),
+            velocity: velocity,
+            channel: tracks[ti].channel
+        )
+        tracks[ti].notes.append(note)
+        tracks[ti].sortNotes()
+        return note.id
+    }
+
+    public mutating func moveNote(
+        id: UUID,
+        toTrack targetTrackID: UUID? = nil,
+        start: Double,
+        pitch: Int? = nil
+    ) {
+        guard let (ti, ni) = noteLocation(of: id), !tracks[ti].locked else { return }
+        var note = tracks[ti].notes[ni]
+        note.start = max(0, start)
+        if let pitch {
+            note.pitch = min(max(pitch, 0), 127)
+        }
+        if let targetTrackID, targetTrackID != tracks[ti].id,
+           let destIndex = trackIndex(of: targetTrackID),
+           tracks[destIndex].isMIDI,
+           !tracks[destIndex].locked {
+            tracks[ti].notes.remove(at: ni)
+            note.channel = tracks[destIndex].channel
+            tracks[destIndex].notes.append(note)
+            tracks[destIndex].sortNotes()
+        } else {
+            tracks[ti].notes[ni] = note
+            tracks[ti].sortNotes()
+        }
+    }
+
+    public mutating func moveNote(
+        _ id: UUID,
+        toTrack targetTrackID: UUID? = nil,
+        toStart start: Double,
+        pitch: Int? = nil
+    ) {
+        moveNote(id: id, toTrack: targetTrackID, start: start, pitch: pitch)
+    }
+
+    public mutating func trimNote(id: UUID, start: Double, duration: Double) {
+        guard let (ti, ni) = noteLocation(of: id), !tracks[ti].locked else { return }
+        tracks[ti].notes[ni].start = max(0, start)
+        tracks[ti].notes[ni].duration = max(MIDINote.minDuration, duration)
+        tracks[ti].sortNotes()
+    }
+
+    public mutating func trimNote(_ id: UUID, start: Double, duration: Double) {
+        trimNote(id: id, start: start, duration: duration)
+    }
+
+    public mutating func setNoteVelocity(id: UUID, velocity: Int) {
+        guard let (ti, ni) = noteLocation(of: id), !tracks[ti].locked else { return }
+        tracks[ti].notes[ni].velocity = min(max(velocity, 1), 127)
+    }
+
+    public mutating func setNoteVelocity(_ id: UUID, velocity: Int) {
+        setNoteVelocity(id: id, velocity: velocity)
+    }
+
+    public mutating func setNotePitch(id: UUID, pitch: Int) {
+        guard let (ti, ni) = noteLocation(of: id), !tracks[ti].locked else { return }
+        tracks[ti].notes[ni].pitch = min(max(pitch, 0), 127)
+        tracks[ti].sortNotes()
+    }
+
+    public mutating func setNotePitch(_ id: UUID, pitch: Int) {
+        setNotePitch(id: id, pitch: pitch)
+    }
+
+    public mutating func setNoteMute(id: UUID, _ mute: Bool) {
+        guard let (ti, ni) = noteLocation(of: id), !tracks[ti].locked else { return }
+        tracks[ti].notes[ni].mute = mute
+    }
+
+    public mutating func setNoteMute(_ id: UUID, _ mute: Bool) {
+        setNoteMute(id: id, mute)
+    }
+
+    @discardableResult
+    public mutating func splitNotes(at time: Double, noteIDs: Set<UUID>? = nil, trackIDs: Set<UUID>? = nil) -> [UUID] {
+        var created: [UUID] = []
+        let eps = MIDINote.minDuration
+        for ti in tracks.indices where !tracks[ti].locked {
+            if let trackIDs, !trackIDs.isEmpty, !trackIDs.contains(tracks[ti].id) { continue }
+            var nextNotes: [MIDINote] = []
+            for note in tracks[ti].notes {
+                let eligible = noteIDs?.contains(note.id) ?? true
+                if eligible && time > note.start + eps && time < note.end - eps {
+                    var left = note
+                    left.duration = time - note.start
+                    var right = note
+                    right.id = UUID()
+                    right.start = time
+                    right.duration = note.end - time
+                    nextNotes.append(left)
+                    nextNotes.append(right)
+                    created.append(right.id)
+                } else {
+                    nextNotes.append(note)
+                }
+            }
+            tracks[ti].notes = nextNotes
+            tracks[ti].sortNotes()
+        }
+        return created
+    }
+
+    @discardableResult
+    public mutating func duplicateNotes(_ ids: Set<UUID>, offsetDelta: Double? = nil) -> [UUID] {
+        guard !ids.isEmpty else { return [] }
+        let selected = allNotes.filter { ids.contains($0.note.id) }
+        guard let minStart = selected.map(\.note.start).min(),
+              let maxEnd = selected.map(\.note.end).max() else { return [] }
+        let span = offsetDelta ?? max(maxEnd - minStart, MIDINote.minDuration)
+        var newIDs: [UUID] = []
+        for (ti, _, note) in selected where !tracks[ti].locked {
+            var copy = note
+            copy.id = UUID()
+            copy.start = note.start + span
+            tracks[ti].notes.append(copy)
+            newIDs.append(copy.id)
+        }
+        for ti in tracks.indices {
+            tracks[ti].sortNotes()
+        }
+        return newIDs
+    }
+
+    public mutating func removeNotes(_ ids: Set<UUID>, ripple: Bool = false) {
+        guard !ids.isEmpty else { return }
+        let selected = allNotes.filter { ids.contains($0.note.id) }
+        let minStart = selected.map(\.note.start).min() ?? 0
+        let maxEnd = selected.map(\.note.end).max() ?? minStart
+        let span = max(0, maxEnd - minStart)
+        let affectedTracks = Set(selected.map(\.trackID))
+
+        for ti in tracks.indices where !tracks[ti].locked {
+            tracks[ti].notes.removeAll { ids.contains($0.id) }
+            if ripple && span > 0 && affectedTracks.contains(tracks[ti].id) {
+                for ni in tracks[ti].notes.indices {
+                    if tracks[ti].notes[ni].start >= maxEnd - 1e-6 {
+                        tracks[ti].notes[ni].start = max(0, tracks[ti].notes[ni].start - span)
+                    }
+                }
+            }
+            tracks[ti].sortNotes()
+        }
+    }
+
+    public mutating func transposeNotes(_ ids: Set<UUID>, semitones: Int) {
+        guard semitones != 0, !ids.isEmpty else { return }
+        for ti in tracks.indices where !tracks[ti].locked {
+            for ni in tracks[ti].notes.indices where ids.contains(tracks[ti].notes[ni].id) {
+                let p = tracks[ti].notes[ni].pitch + semitones
+                tracks[ti].notes[ni].pitch = min(max(p, 0), 127)
+            }
+            tracks[ti].sortNotes()
+        }
+    }
+
+    public mutating func quantizeNotes(
+        _ ids: Set<UUID>? = nil,
+        range: ClosedRange<Double>? = nil,
+        subdivisionBeats: Double = 0.25,
+        quantizeDuration: Bool = false,
+        trackIDs: Set<UUID>? = nil
+    ) {
+        let gridSeconds = max(0.01, secondsPerBeat * max(0.0625, subdivisionBeats))
+        for ti in tracks.indices where !tracks[ti].locked {
+            if let trackIDs, !trackIDs.isEmpty, !trackIDs.contains(tracks[ti].id) { continue }
+            for ni in tracks[ti].notes.indices {
+                let n = tracks[ti].notes[ni]
+                let matchID = ids?.contains(n.id) ?? false
+                let matchRange = range.map { n.start >= $0.lowerBound - 1e-5 && n.start <= $0.upperBound + 1e-5 } ?? false
+                let matchAll = (ids == nil && range == nil)
+                guard matchID || matchRange || matchAll else { continue }
+
+                let qStart = (n.start / gridSeconds).rounded() * gridSeconds
+                tracks[ti].notes[ni].start = max(0, qStart)
+                if quantizeDuration {
+                    let qDur = max(gridSeconds, (n.duration / gridSeconds).rounded() * gridSeconds)
+                    tracks[ti].notes[ni].duration = qDur
+                }
+            }
+            tracks[ti].sortNotes()
+        }
+    }
+
+    public mutating func quantizeNotes(
+        ids: Set<UUID>?,
+        range: ClosedRange<Double>? = nil,
+        subdivisionBeats: Double = 0.25,
+        quantizeDuration: Bool = false,
+        trackIDs: Set<UUID>? = nil
+    ) {
+        quantizeNotes(ids, range: range, subdivisionBeats: subdivisionBeats, quantizeDuration: quantizeDuration, trackIDs: trackIDs)
     }
 
     // MARK: Time-Range (Selection) Operations — Copy, Cut, Paste, Delete, Crop, Silence, Fade
@@ -368,49 +706,188 @@ extension AudioProject {
         }
     }
 
-    /// Deletes the audio inside `range` on `trackIDs` (nil = all unlocked tracks).
-    /// When `ripple == true`, clips starting at or after `range.upperBound` shift left by `range`'s length.
-    public mutating func deleteRange(_ range: ClosedRange<Double>, trackIDs: Set<UUID>? = nil, ripple: Bool = false) {
-        let span = range.upperBound - range.lowerBound
-        guard span >= AudioClip.minDuration else { return }
-        for ti in tracks.indices where !tracks[ti].locked {
-            if let trackIDs, !trackIDs.isEmpty, !trackIDs.contains(tracks[ti].id) { continue }
-            // Split any clip crossing range.lowerBound or range.upperBound
-            for c in tracks[ti].clips where range.lowerBound > c.offset + AudioClip.minDuration && range.lowerBound < c.end - AudioClip.minDuration {
-                _ = splitClip(id: c.id, at: range.lowerBound)
+    /// Extracts MIDI note slices overlapping `range` on `trackIDs` (nil = all tracks).
+    public func extractNoteSlices(in range: ClosedRange<Double>, trackIDs: Set<UUID>? = nil) -> [NoteClipboardSlice] {
+        guard range.upperBound > range.lowerBound + 1e-5 else { return [] }
+        let eligibleTracks = tracks.enumerated().filter { _, t in
+            trackIDs == nil || trackIDs!.isEmpty || trackIDs!.contains(t.id)
+        }
+        guard let baseTrackIdx = eligibleTracks.first?.offset else { return [] }
+        var slices: [NoteClipboardSlice] = []
+
+        for (ti, track) in eligibleTracks {
+            for note in track.notes {
+                guard note.end > range.lowerBound + 1e-5, note.start < range.upperBound - 1e-5 else { continue }
+                let clippedStart = max(note.start, range.lowerBound)
+                let clippedEnd = min(note.end, range.upperBound)
+                guard clippedEnd - clippedStart >= MIDINote.minDuration else { continue }
+                var sliced = note
+                sliced.id = UUID()
+                sliced.start = clippedStart
+                sliced.duration = clippedEnd - clippedStart
+                slices.append(
+                    NoteClipboardSlice(
+                        trackOffset: ti - baseTrackIdx,
+                        relativeStart: clippedStart - range.lowerBound,
+                        note: sliced
+                    )
+                )
             }
-            for c in tracks[ti].clips where range.upperBound > c.offset + AudioClip.minDuration && range.upperBound < c.end - AudioClip.minDuration {
-                _ = splitClip(id: c.id, at: range.upperBound)
-            }
-            // Remove clips wholly inside range
-            tracks[ti].clips.removeAll { c in
-                c.offset >= range.lowerBound - 1e-5 && c.end <= range.upperBound + 1e-5
-            }
-            // Trim any clip still slightly overlapping due to minDuration edge cases
-            for ci in tracks[ti].clips.indices {
-                let c = tracks[ti].clips[ci]
-                if c.offset < range.lowerBound, c.end > range.lowerBound, c.end <= range.upperBound {
-                    trimClipEnd(id: c.id, to: range.lowerBound)
-                } else if c.offset >= range.lowerBound, c.offset < range.upperBound, c.end > range.upperBound {
-                    trimClipStart(id: c.id, to: range.upperBound)
-                }
-            }
-            if ripple {
-                for ci in tracks[ti].clips.indices where tracks[ti].clips[ci].offset >= range.upperBound - 1e-5 {
-                    tracks[ti].clips[ci].offset = max(range.lowerBound, tracks[ti].clips[ci].offset - span)
-                }
-            }
-            sortClips(inTrackAt: ti)
+        }
+        return slices
+    }
+
+    public func extractNotes(_ ids: Set<UUID>) -> [NoteClipboardSlice] {
+        let matched = allNotes.filter { ids.contains($0.note.id) }
+        guard let minTrack = matched.map(\.trackIndex).min(),
+              let minStart = matched.map(\.note.start).min() else { return [] }
+        return matched.map { ti, _, note in
+            var copy = note
+            copy.id = UUID()
+            return NoteClipboardSlice(
+                trackOffset: ti - minTrack,
+                relativeStart: note.start - minStart,
+                note: copy
+            )
         }
     }
 
-    /// Crops (`Rogner`) to `range`: keeps only the audio inside `range` and shifts it to `t = 0`.
+    @discardableResult
+    public mutating func pasteNotes(
+        _ slices: [NoteClipboardSlice],
+        at time: Double,
+        targetTrackID: UUID? = nil,
+        insertRipple: Bool = false
+    ) -> [UUID] {
+        guard !slices.isEmpty else { return [] }
+        let baseTrackIndex: Int
+        if let targetTrackID, let idx = trackIndex(of: targetTrackID) {
+            baseTrackIndex = idx
+        } else if let firstMIDI = tracks.firstIndex(where: \.isMIDI) {
+            baseTrackIndex = firstMIDI
+        } else {
+            let newID = addMIDITrack()
+            baseTrackIndex = trackIndex(of: newID) ?? 0
+        }
+
+        let span = slices.map { $0.relativeStart + $0.note.duration }.max() ?? 0
+        if insertRipple && span > 0 {
+            let touchedOffsets = Set(slices.map(\.trackOffset))
+            for offset in touchedOffsets {
+                let ti = min(max(0, baseTrackIndex + offset), tracks.count - 1)
+                guard !tracks[ti].locked else { continue }
+                for ni in tracks[ti].notes.indices where tracks[ti].notes[ni].start >= time - 1e-6 {
+                    tracks[ti].notes[ni].start += span
+                }
+            }
+        }
+
+        var pastedIDs: [UUID] = []
+        for slice in slices {
+            let ti = min(max(0, baseTrackIndex + slice.trackOffset), tracks.count - 1)
+            guard !tracks[ti].locked else { continue }
+            var newNote = slice.note
+            newNote.id = UUID()
+            newNote.start = max(0, time + slice.relativeStart)
+            newNote.channel = tracks[ti].channel
+            tracks[ti].notes.append(newNote)
+            pastedIDs.append(newNote.id)
+        }
+        for ti in tracks.indices {
+            tracks[ti].sortNotes()
+        }
+        return pastedIDs
+    }
+
+    /// Deletes the audio clips and MIDI notes inside `range` on `trackIDs` (nil = all unlocked tracks).
+    /// When `ripple == true`, events starting at or after `range.upperBound` shift left by `range`'s length.
+    public mutating func deleteRange(_ range: ClosedRange<Double>, trackIDs: Set<UUID>? = nil, ripple: Bool = false) {
+        let a = range.lowerBound
+        let b = range.upperBound
+        let span = b - a
+        guard span >= AudioClip.minDuration else { return }
+        for ti in tracks.indices where !tracks[ti].locked {
+            if let trackIDs, !trackIDs.isEmpty, !trackIDs.contains(tracks[ti].id) { continue }
+            // 1. Audio clips
+            for c in tracks[ti].clips where a > c.offset + AudioClip.minDuration && a < c.end - AudioClip.minDuration {
+                _ = splitClip(id: c.id, at: a)
+            }
+            for c in tracks[ti].clips where b > c.offset + AudioClip.minDuration && b < c.end - AudioClip.minDuration {
+                _ = splitClip(id: c.id, at: b)
+            }
+            tracks[ti].clips.removeAll { c in
+                c.offset >= a - 1e-5 && c.end <= b + 1e-5
+            }
+            for ci in tracks[ti].clips.indices {
+                let c = tracks[ti].clips[ci]
+                if c.offset < a, c.end > a, c.end <= b {
+                    trimClipEnd(id: c.id, to: a)
+                } else if c.offset >= a, c.offset < b, c.end > b {
+                    trimClipStart(id: c.id, to: b)
+                }
+            }
+            if ripple {
+                for ci in tracks[ti].clips.indices where tracks[ti].clips[ci].offset >= b - 1e-5 {
+                    tracks[ti].clips[ci].offset = max(a, tracks[ti].clips[ci].offset - span)
+                }
+            }
+            sortClips(inTrackAt: ti)
+
+            // 2. MIDI notes
+            if !tracks[ti].notes.isEmpty {
+                var kept: [MIDINote] = []
+                for note in tracks[ti].notes {
+                    if note.end <= a + 1e-6 || note.start >= b - 1e-6 {
+                        var updated = note
+                        if ripple && updated.start >= b - 1e-6 {
+                            updated.start = max(a, updated.start - span)
+                        }
+                        kept.append(updated)
+                    } else {
+                        if note.start < a - MIDINote.minDuration {
+                            var left = note
+                            left.duration = a - note.start
+                            kept.append(left)
+                        }
+                        if note.end > b + MIDINote.minDuration {
+                            var right = note
+                            right.id = UUID()
+                            right.start = ripple ? a : b
+                            right.duration = note.end - b
+                            kept.append(right)
+                        }
+                    }
+                }
+                tracks[ti].notes = kept
+                tracks[ti].sortNotes()
+            }
+        }
+    }
+
+    /// Crops (`Rogner`) to `range`: keeps only the audio and MIDI notes inside `range` and shifts them to `t = 0`.
     public mutating func cropToRange(_ range: ClosedRange<Double>, trackIDs: Set<UUID>? = nil) {
-        guard range.upperBound > range.lowerBound + AudioClip.minDuration else { return }
+        let a = range.lowerBound
+        let b = range.upperBound
+        guard b > a + AudioClip.minDuration else { return }
         let slices = extractSlices(in: range, trackIDs: trackIDs)
         for ti in tracks.indices where !tracks[ti].locked {
             if let trackIDs, !trackIDs.isEmpty, !trackIDs.contains(tracks[ti].id) { continue }
             tracks[ti].clips.removeAll()
+            if !tracks[ti].notes.isEmpty {
+                var croppedNotes: [MIDINote] = []
+                for note in tracks[ti].notes {
+                    guard note.end > a + 1e-5, note.start < b - 1e-5 else { continue }
+                    let s = max(note.start, a)
+                    let e = min(note.end, b)
+                    guard e - s >= MIDINote.minDuration else { continue }
+                    var c = note
+                    c.start = s - a
+                    c.duration = e - s
+                    croppedNotes.append(c)
+                }
+                tracks[ti].notes = croppedNotes
+                tracks[ti].sortNotes()
+            }
         }
         for s in slices where tracks.indices.contains(s.trackIndex) && !tracks[s.trackIndex].locked {
             var c = s.clip
@@ -418,21 +895,20 @@ extension AudioProject {
             tracks[s.trackIndex].clips.append(c)
         }
         for ti in tracks.indices { sortClips(inTrackAt: ti) }
-        // Shift markers inside range
         markers = markers.compactMap { m in
-            guard m.time >= range.lowerBound && m.time <= range.upperBound else { return nil }
+            guard m.time >= a && m.time <= b else { return nil }
             var shifted = m
-            shifted.time = m.time - range.lowerBound
+            shifted.time = m.time - a
             return shifted
         }
         if let loop = loopRange {
-            let lo = max(0, loop.lowerBound - range.lowerBound)
-            let hi = min(range.upperBound - range.lowerBound, loop.upperBound - range.lowerBound)
+            let lo = max(0, loop.lowerBound - a)
+            let hi = min(b - a, loop.upperBound - a)
             loopRange = hi > lo + 1e-4 ? lo...hi : nil
         }
     }
 
-    /// Silences (`Muet`) the audio inside `range` by splitting at its boundaries and muting the interior clips.
+    /// Silences (`Muet`) the audio and MIDI notes inside `range`.
     public mutating func silenceRange(_ range: ClosedRange<Double>, trackIDs: Set<UUID>? = nil) {
         guard range.upperBound > range.lowerBound + AudioClip.minDuration else { return }
         for ti in tracks.indices where !tracks[ti].locked {
@@ -449,16 +925,40 @@ extension AudioProject {
                     tracks[ti].clips[ci].mute = true
                 }
             }
+            if !tracks[ti].notes.isEmpty {
+                // For MIDI tracks, silencing a range removes/trims notes in that range without ripple
+                var kept: [MIDINote] = []
+                let a = range.lowerBound
+                let b = range.upperBound
+                for note in tracks[ti].notes {
+                    if note.end <= a + 1e-6 || note.start >= b - 1e-6 {
+                        kept.append(note)
+                    } else {
+                        if note.start < a - MIDINote.minDuration {
+                            var left = note
+                            left.duration = a - note.start
+                            kept.append(left)
+                        }
+                        if note.end > b + MIDINote.minDuration {
+                            var right = note
+                            right.id = UUID()
+                            right.start = b
+                            right.duration = note.end - b
+                            kept.append(right)
+                        }
+                    }
+                }
+                tracks[ti].notes = kept
+                tracks[ti].sortNotes()
+            }
         }
     }
 
-    /// Applies a fade-in across `range`: if `range` starts near a clip's start (or inside it, splitting first),
-    /// sets `fadeIn` so it reaches full volume at `range.upperBound`.
+    /// Applies a fade-in across `range`.
     public mutating func fadeInRange(_ range: ClosedRange<Double>, shape: FadeShape? = nil, trackIDs: Set<UUID>? = nil) {
         guard range.upperBound > range.lowerBound + AudioClip.minDuration else { return }
         for ti in tracks.indices where !tracks[ti].locked {
             if let trackIDs, !trackIDs.isEmpty, !trackIDs.contains(tracks[ti].id) { continue }
-            // If range.lowerBound is strictly inside a clip (more than 20ms after clip start), split there first
             for c in tracks[ti].clips where range.lowerBound > c.offset + 0.02 && range.lowerBound < c.end - AudioClip.minDuration {
                 _ = splitClip(id: c.id, at: range.lowerBound, crossfadeProtection: 0)
             }
@@ -475,8 +975,7 @@ extension AudioProject {
         }
     }
 
-    /// Applies a fade-out across `range`: if `range` ends near a clip's end (or inside it, splitting first),
-    /// sets `fadeOut` so it starts attenuating at `range.lowerBound`.
+    /// Applies a fade-out across `range`.
     public mutating func fadeOutRange(_ range: ClosedRange<Double>, shape: FadeShape? = nil, trackIDs: Set<UUID>? = nil) {
         guard range.upperBound > range.lowerBound + AudioClip.minDuration else { return }
         for ti in tracks.indices where !tracks[ti].locked {
@@ -497,8 +996,7 @@ extension AudioProject {
         }
     }
 
-    /// Pastes `slices` at `time`. If `slices` all came from one track and `targetTrackID` is given, pastes onto
-    /// `targetTrackID`; if `insertRipple == true`, splits at `time` and shifts subsequent clips right to make room.
+    /// Pastes `slices` at `time`.
     @discardableResult
     public mutating func paste(_ slices: [ClipboardSlice], at time: Double, targetTrackID: UUID? = nil, insertRipple: Bool = true) -> [UUID] {
         guard !slices.isEmpty else { return [] }
@@ -507,7 +1005,6 @@ extension AudioProject {
         let targetBaseIndex = targetTrackID.flatMap(trackIndex(of:)) ?? baseTrackIndex
         var pastedIDs: [UUID] = []
 
-        // Group slices by destination track
         var byTrack: [Int: [ClipboardSlice]] = [:]
         for s in slices {
             let dest = min(max(targetBaseIndex + (s.trackIndex - baseTrackIndex), 0), max(tracks.count - 1, 0))
@@ -517,7 +1014,6 @@ extension AudioProject {
         for (ti, trackSlices) in byTrack where tracks.indices.contains(ti) && !tracks[ti].locked {
             let span = trackSlices.map { $0.relativeOffset + $0.clip.duration }.max() ?? 0
             if insertRipple, span > 0 {
-                // Split any clip under `time` and shift clips after `time` right by `span`
                 for c in tracks[ti].clips where time > c.offset + AudioClip.minDuration && time < c.end - AudioClip.minDuration {
                     _ = splitClip(id: c.id, at: time)
                 }
@@ -535,6 +1031,31 @@ extension AudioProject {
             sortClips(inTrackAt: ti)
         }
         return pastedIDs
+    }
+
+    // MARK: Tempo & Time Signature
+
+    public mutating func setTempo(_ newBPM: Double, scaleNoteTimes: Bool = true) {
+        setTempo(bpm: newBPM, scaleNoteTimes: scaleNoteTimes)
+    }
+
+    public mutating func setTempo(bpm newBPM: Double, scaleNoteTimes: Bool = true) {
+        let clamped = min(max(newBPM, 20.0), 300.0)
+        let oldBPM = max(20.0, bpm)
+        bpm = clamped
+        guard scaleNoteTimes, abs(clamped - oldBPM) > 1e-6 else { return }
+        let scale = oldBPM / clamped
+        for ti in tracks.indices {
+            for ni in tracks[ti].notes.indices {
+                tracks[ti].notes[ni].start *= scale
+                tracks[ti].notes[ni].duration = max(MIDINote.minDuration, tracks[ti].notes[ni].duration * scale)
+            }
+        }
+    }
+
+    public mutating func setTimeSignature(numerator: Int, denominator: Int) {
+        timeSignatureNumerator = min(max(numerator, 1), 32)
+        timeSignatureDenominator = [1, 2, 4, 8, 16].contains(denominator) ? denominator : 4
     }
 
     // MARK: Markers
@@ -572,7 +1093,9 @@ extension AudioProject {
 public enum EditError: Error, Equatable, Sendable {
     case trackNotFound
     case clipNotFound
+    case noteNotFound
     case markerNotFound
+    case trackLocked
     case invalidSplitPoint
     case emptyRange
     case invalidArg(String)
@@ -580,15 +1103,40 @@ public enum EditError: Error, Equatable, Sendable {
 
 public enum Operations {
     @discardableResult
-    public static func addTrack(_ proj: inout AudioProject, name: String? = nil, at index: Int? = nil) -> AudioTrack {
-        let id = proj.addTrack(name: name, at: index)
+    public static func addTrack(
+        _ proj: inout AudioProject,
+        name: String? = nil,
+        kind: TrackKind = .audio,
+        program: Int = 0,
+        channel: Int? = nil,
+        isDrum: Bool = false,
+        at index: Int? = nil
+    ) -> AudioTrack {
+        let id = proj.addTrack(name: name, kind: kind, program: program, channel: channel, isDrum: isDrum, at: index)
         let idx = proj.trackIndex(of: id) ?? 0
         return proj.tracks[idx]
+    }
+
+    @discardableResult
+    public static func addMIDITrack(
+        _ proj: inout AudioProject,
+        name: String? = nil,
+        program: Int = 0,
+        channel: Int? = nil,
+        isDrum: Bool = false,
+        at index: Int? = nil
+    ) -> AudioTrack {
+        addTrack(&proj, name: name, kind: .midi, program: program, channel: channel, isDrum: isDrum, at: index)
     }
 
     public static func removeTrack(_ proj: inout AudioProject, id: UUID) throws {
         guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
         proj.removeTrack(id)
+    }
+
+    public static func moveTrack(_ proj: inout AudioProject, id: UUID, to destination: Int) throws {
+        guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
+        proj.moveTrack(id, to: destination)
     }
 
     @discardableResult
@@ -628,6 +1176,28 @@ public enum Operations {
         guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
         proj.setTrack(id, colorIndex: colorIndex)
     }
+
+    public static func setTrackProgram(_ proj: inout AudioProject, id: UUID, program: Int, isDrum: Bool? = nil) throws {
+        guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
+        proj.setTrack(id, program: program, isDrum: isDrum)
+    }
+
+    public static func setTrackChannel(_ proj: inout AudioProject, id: UUID, channel: Int) throws {
+        guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
+        proj.setTrack(id, channel: channel)
+    }
+
+    public static func setTrackTranspose(_ proj: inout AudioProject, id: UUID, transpose: Int) throws {
+        guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
+        proj.setTrack(id, transpose: transpose)
+    }
+
+    public static func setTrackPianoRollExpanded(_ proj: inout AudioProject, id: UUID, expanded: Bool) throws {
+        guard proj.trackIndex(of: id) != nil else { throw EditError.trackNotFound }
+        proj.setTrack(id, pianoRollExpanded: expanded)
+    }
+
+    // MARK: Clips
 
     public static func addClip(_ proj: inout AudioProject, toTrack trackID: UUID, clip: AudioClip) throws {
         guard proj.trackIndex(of: trackID) != nil else { throw EditError.trackNotFound }
@@ -725,6 +1295,104 @@ public enum Operations {
     public static func crossfade(_ proj: inout AudioProject, clipA: UUID, clipB: UUID, duration: Double = 0.25) throws {
         proj.crossfade(clipA: clipA, clipB: clipB, duration: duration)
     }
+
+    // MARK: MIDI Notes
+
+    @discardableResult
+    public static func addNote(
+        _ proj: inout AudioProject,
+        toTrack trackID: UUID,
+        pitch: Int,
+        start: Double,
+        duration: Double,
+        velocity: Int = 100
+    ) throws -> UUID {
+        guard let ti = proj.trackIndex(of: trackID) else { throw EditError.trackNotFound }
+        guard !proj.tracks[ti].locked else { throw EditError.trackLocked }
+        guard let noteID = proj.addNote(toTrack: trackID, pitch: pitch, start: start, duration: duration, velocity: velocity) else {
+            throw EditError.trackNotFound
+        }
+        return noteID
+    }
+
+    public static func moveNote(
+        _ proj: inout AudioProject,
+        id: UUID,
+        toTrack targetTrackID: UUID? = nil,
+        start: Double,
+        pitch: Int? = nil
+    ) throws {
+        guard proj.noteLocation(of: id) != nil else { throw EditError.noteNotFound }
+        proj.moveNote(id: id, toTrack: targetTrackID, start: start, pitch: pitch)
+    }
+
+    public static func trimNote(
+        _ proj: inout AudioProject,
+        id: UUID,
+        start: Double,
+        duration: Double
+    ) throws {
+        guard proj.noteLocation(of: id) != nil else { throw EditError.noteNotFound }
+        proj.trimNote(id: id, start: start, duration: duration)
+    }
+
+    public static func setNoteVelocity(_ proj: inout AudioProject, id: UUID, velocity: Int) throws {
+        guard proj.noteLocation(of: id) != nil else { throw EditError.noteNotFound }
+        proj.setNoteVelocity(id: id, velocity: velocity)
+    }
+
+    public static func setNotePitch(_ proj: inout AudioProject, id: UUID, pitch: Int) throws {
+        guard proj.noteLocation(of: id) != nil else { throw EditError.noteNotFound }
+        proj.setNotePitch(id: id, pitch: pitch)
+    }
+
+    public static func setNoteMute(_ proj: inout AudioProject, id: UUID, mute: Bool) throws {
+        guard proj.noteLocation(of: id) != nil else { throw EditError.noteNotFound }
+        proj.setNoteMute(id: id, mute)
+    }
+
+    @discardableResult
+    public static func splitNotes(
+        _ proj: inout AudioProject,
+        at time: Double,
+        noteIDs: Set<UUID>? = nil,
+        trackIDs: Set<UUID>? = nil
+    ) -> [UUID] {
+        proj.splitNotes(at: time, noteIDs: noteIDs, trackIDs: trackIDs)
+    }
+
+    @discardableResult
+    public static func duplicateNotes(_ proj: inout AudioProject, ids: Set<UUID>) -> [UUID] {
+        proj.duplicateNotes(ids)
+    }
+
+    public static func removeNotes(_ proj: inout AudioProject, ids: Set<UUID>, ripple: Bool = false) {
+        proj.removeNotes(ids, ripple: ripple)
+    }
+
+    public static func transposeNotes(_ proj: inout AudioProject, ids: Set<UUID>, semitones: Int) {
+        proj.transposeNotes(ids, semitones: semitones)
+    }
+
+    public static func quantizeNotes(
+        _ proj: inout AudioProject,
+        ids: Set<UUID>? = nil,
+        range: ClosedRange<Double>? = nil,
+        subdivisionBeats: Double = 0.25,
+        quantizeDuration: Bool = false
+    ) {
+        proj.quantizeNotes(ids: ids, range: range, subdivisionBeats: subdivisionBeats, quantizeDuration: quantizeDuration)
+    }
+
+    public static func setTempo(_ proj: inout AudioProject, bpm: Double, scaleNoteTimes: Bool = true) {
+        proj.setTempo(bpm: bpm, scaleNoteTimes: scaleNoteTimes)
+    }
+
+    public static func setTimeSignature(_ proj: inout AudioProject, numerator: Int, denominator: Int) {
+        proj.setTimeSignature(numerator: numerator, denominator: denominator)
+    }
+
+    // MARK: Range Operations
 
     public static func extractSlices(from proj: AudioProject, in range: ClosedRange<Double>, trackIDs: Set<UUID>? = nil) -> [ClipboardSlice] {
         proj.extractSlices(in: range, trackIDs: trackIDs)

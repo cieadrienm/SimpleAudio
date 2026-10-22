@@ -31,7 +31,7 @@ struct ContentView: View {
                 }
 
                 Group {
-                    if model.store.project.allClips.isEmpty {
+                    if !model.store.project.hasContent {
                         WelcomeView(model: model)
                     } else {
                         TimelineHost(model: model) { view in

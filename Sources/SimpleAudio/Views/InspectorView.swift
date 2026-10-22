@@ -15,6 +15,14 @@ struct InspectorView: View {
                     Divider().overlay(Color(nsColor: Theme.separator))
                 }
 
+                if let note = model.primarySelectedNote {
+                    noteSection(note)
+                    Divider().overlay(Color(nsColor: Theme.separator))
+                } else if model.selectedNotes.count > 1 {
+                    multiNoteSection()
+                    Divider().overlay(Color(nsColor: Theme.separator))
+                }
+
                 if let clip = model.primarySelectedClip {
                     clipSection(clip)
                     Divider().overlay(Color(nsColor: Theme.separator))
@@ -285,12 +293,93 @@ struct InspectorView: View {
         }
     }
 
+    // MARK: 2b. MIDI Note Section
+
+    @ViewBuilder
+    private func noteSection(_ note: MIDINote) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            SectionHeader("Note MIDI (\(GeneralMIDI.noteName(note.pitch)))")
+
+            FieldRow("Hauteur") {
+                NumberField(value: Double(note.pitch), unit: "", step: 1, range: 0...127, decimals: 0) { val in
+                    model.setNotePitch(note.id, Int(val.rounded()))
+                }
+            }
+
+            FieldRow("Position") {
+                NumberField(value: note.start, unit: "s", step: 0.05, range: 0...36000, decimals: 3) { val in
+                    model.setNoteStart(note.id, val)
+                }
+            }
+
+            FieldRow("Durée") {
+                NumberField(value: note.duration, unit: "s", step: 0.05, range: MIDINote.minDuration...60, decimals: 3) { val in
+                    model.setNoteDuration(note.id, val)
+                }
+            }
+
+            FieldRow("Vélocité") {
+                NumberField(value: Double(note.velocity), unit: "", step: 4, range: 1...127, decimals: 0) { val in
+                    model.setNoteVelocity(note.id, Int(val.rounded()))
+                }
+            }
+
+            HStack(spacing: 6) {
+                TextButton(
+                    title: note.mute ? "Muette ✓" : "Muette",
+                    symbol: "speaker.slash",
+                    prominent: note.mute,
+                    compact: true
+                ) {
+                    model.setNoteMute(note.id, !note.mute)
+                }
+                TextButton(title: "Quantifier", symbol: "pianokeys", compact: true) {
+                    model.quantizeSelection(subdivisionBeats: 0.25)
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
+                TextButton(title: "-12", compact: true) { model.transposeSelection(semitones: -12) }
+                TextButton(title: "-1", compact: true) { model.transposeSelection(semitones: -1) }
+                TextButton(title: "+1", compact: true) { model.transposeSelection(semitones: 1) }
+                TextButton(title: "+12", compact: true) { model.transposeSelection(semitones: 12) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func multiNoteSection() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader("\(model.selectedNotes.count) notes MIDI sélectionnées")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                TextButton(title: "Quantifier 1/16", compact: true) {
+                    model.quantizeSelection(subdivisionBeats: 0.25)
+                }
+                TextButton(title: "Quantifier 1/8", compact: true) {
+                    model.quantizeSelection(subdivisionBeats: 0.5)
+                }
+                TextButton(title: "Octave +12", compact: true) {
+                    model.transposeSelection(semitones: 12)
+                }
+                TextButton(title: "Octave -12", compact: true) {
+                    model.transposeSelection(semitones: -12)
+                }
+                TextButton(title: "Demi-ton +1", compact: true) {
+                    model.transposeSelection(semitones: 1)
+                }
+                TextButton(title: "Demi-ton -1", compact: true) {
+                    model.transposeSelection(semitones: -1)
+                }
+            }
+        }
+    }
+
     // MARK: 3. Track Section
 
     @ViewBuilder
     private func trackSection(_ track: AudioTrack) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            SectionHeader("Piste")
+            SectionHeader(track.isMIDI ? "Piste MIDI" : "Piste Audio")
 
             FieldRow("Nom") {
                 CommitField(value: track.name) { newName in
@@ -315,6 +404,43 @@ struct InspectorView: View {
                                     try? Operations.setTrackColor(&proj, id: track.id, colorIndex: idx)
                                 }
                             }
+                    }
+                }
+            }
+
+            if track.isMIDI {
+                FieldRow("Instrument") {
+                    Picker("", selection: Binding(
+                        get: { track.program },
+                        set: { prog in model.setTrackProgram(track.id, prog) }
+                    )) {
+                        ForEach(0..<GeneralMIDI.programs.count, id: \.self) { p in
+                            Text("\(p + 1) · \(GeneralMIDI.programs[p])").tag(p)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                }
+                .disabled(track.isDrum || track.channel == 9)
+
+                FieldRow("Canal MIDI") {
+                    Picker("", selection: Binding(
+                        get: { track.channel },
+                        set: { ch in model.setTrackChannel(track.id, ch, isDrum: ch == 9) }
+                    )) {
+                        ForEach(0..<16, id: \.self) { ch in
+                            Text(ch == 9 ? "10 (Batterie GM)" : "Canal \(ch + 1)").tag(ch)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                }
+
+                FieldRow("Transposer") {
+                    NumberField(value: Double(track.transpose), unit: "st", step: 1, range: -48...48, decimals: 0) { val in
+                        model.setTrackTranspose(track.id, Int(val.rounded()))
                     }
                 }
             }
@@ -346,12 +472,60 @@ struct InspectorView: View {
                 ) {
                     model.toggleTrackSolo(track.id)
                 }
-                TextButton(
-                    title: "L/R",
-                    prominent: track.stereoSplit,
-                    compact: true
-                ) {
-                    model.toggleTrackStereoSplit(track.id)
+                if track.isMIDI {
+                    TextButton(
+                        title: "🎹 Piano-Roll",
+                        prominent: track.pianoRollExpanded,
+                        compact: true
+                    ) {
+                        model.toggleTrackPianoRoll(track.id)
+                    }
+                } else {
+                    TextButton(
+                        title: "L/R",
+                        prominent: track.stereoSplit,
+                        compact: true
+                    ) {
+                        model.toggleTrackStereoSplit(track.id)
+                    }
+                }
+            }
+
+            if track.isMIDI && !track.notes.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    TextButton(title: "Rendre en piste Audio (WAV)", symbol: "waveform.badge.plus", compact: true) {
+                        model.bounceMIDITrackToAudio(track.id, replaceMIDITrack: false)
+                    }
+                    .help("Synthétise la piste MIDI en WAV 24-bit et l'ajoute comme piste Audio sur la timeline")
+
+                    TextButton(title: "Convertir en piste Audio", symbol: "arrow.triangle.2.circlepath", compact: true) {
+                        model.bounceMIDITrackToAudio(track.id, replaceMIDITrack: true)
+                    }
+                    .help("Remplace cette piste MIDI par son rendu Audio WAV")
+                }
+            }
+
+            if project.tracks.count > 1, let trackIdx = project.trackIndex(of: track.id) {
+                HStack(spacing: 6) {
+                    TextButton(
+                        title: "Monter",
+                        symbol: "arrow.up",
+                        compact: true,
+                        disabled: trackIdx == 0
+                    ) {
+                        model.moveTrack(track.id, by: -1)
+                    }
+                    .help("Monter la piste d'un cran (⌥↑)")
+
+                    TextButton(
+                        title: "Descendre",
+                        symbol: "arrow.down",
+                        compact: true,
+                        disabled: trackIdx >= project.tracks.count - 1
+                    ) {
+                        model.moveTrack(track.id, by: 1)
+                    }
+                    .help("Descendre la piste d'un cran (⌥↓)")
                 }
             }
 
@@ -380,6 +554,45 @@ struct InspectorView: View {
                     model.store.perform("Gain Master") { proj in
                         proj.masterGainDB = val
                     }
+                }
+            }
+
+            if project.hasMIDITracks {
+                FieldRow("Tempo") {
+                    NumberField(value: project.bpm, unit: "BPM", step: 1, range: 20...320, decimals: 1) { val in
+                        model.setBPM(val)
+                    }
+                }
+
+                FieldRow("Signature") {
+                    HStack(spacing: 4) {
+                        Picker("", selection: Binding(
+                            get: { "\(project.timeSignatureNumerator)/\(project.timeSignatureDenominator)" },
+                            set: { sig in
+                                let parts = sig.split(separator: "/").compactMap { Int($0) }
+                                if parts.count == 2 {
+                                    model.setTimeSignature(numerator: parts[0], denominator: parts[1])
+                                }
+                            }
+                        )) {
+                            Text("4/4").tag("4/4")
+                            Text("3/4").tag("3/4")
+                            Text("6/8").tag("6/8")
+                            Text("5/4").tag("5/4")
+                            Text("7/8").tag("7/8")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                    }
+                }
+
+                FieldRow("Banque MIDI") {
+                    Button(model.engine.activeSoundfontName) {
+                        model.chooseSoundfontPanel()
+                    }
+                    .controlSize(.small)
+                    .help("Charger une banque SoundFont (.sf2 / .dls)")
                 }
             }
 
