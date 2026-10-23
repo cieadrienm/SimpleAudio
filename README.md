@@ -46,3 +46,9 @@ swift test
 ## Crédits
 
 **cie Adrien M** (Compagnie Adrien M) — Bundle ID : `net.cieadrienm.simpleaudio`.
+
+## Licence
+
+Copyright © 2026 Adrien Mondot, cie Adrien M.
+
+SimpleAudio est un logiciel libre, distribué sous la licence publique générale GNU (GPL) version 3 ou, au choix, toute version ultérieure. Il peut être utilisé, étudié, modifié et redistribué selon ses termes, sans aucune garantie. Texte complet : [`LICENSE`](LICENSE).
