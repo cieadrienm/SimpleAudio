@@ -408,7 +408,7 @@ extension TimelineView {
         if room >= 28 {
             var title = clip.name
             if clip.reversed { title += " ⇄" }
-            if clip.mute { title += " (muet)" }
+            if clip.mute { title += L(" (muet)", " (muted)") }
             let gainBadge = abs(clip.gainDB) >= 0.05 ? "  \(TimeFormat.decibels(clip.gainDB))" : ""
             let fullText = (title + gainBadge) as NSString
             let textWidth = ceil(fullText.size(withAttributes: TimelineStyle.clipLabel).width)
@@ -1136,16 +1136,16 @@ extension TimelineView {
             let info = "\(Int(p.bpm.rounded())) BPM · \(p.timeSignatureNumerator)/\(p.timeSignatureDenominator)" as NSString
             info.draw(at: CGPoint(x: 12, y: 7), withAttributes: TimelineStyle.rulerBar)
         } else {
-            ("APERÇU GLOBAL" as NSString).draw(at: CGPoint(x: 12, y: 7), withAttributes: TimelineStyle.cornerDim)
+            (L("APERÇU GLOBAL", "OVERVIEW") as NSString).draw(at: CGPoint(x: 12, y: 7), withAttributes: TimelineStyle.cornerDim)
         }
 
         Theme.ruler.setFill()
         CGRect(x: 0, y: Metrics.overviewHeight, width: Metrics.headerWidth - 1, height: Metrics.rulerHeight - 1).fill()
-        ("MAG" as NSString).draw(
+        (L("MAG", "SNAP") as NSString).draw(
             at: CGPoint(x: 12, y: Metrics.overviewHeight + 6),
             withAttributes: model.snapping ? TimelineStyle.cornerOn : TimelineStyle.cornerDim
         )
-        let trackCountText = "\(p.tracks.count) PISTE\(p.tracks.count > 1 ? "S" : "")" as NSString
+        let trackCountText = L("\(p.tracks.count) PISTE\(p.tracks.count > 1 ? "S" : "")", "\(p.tracks.count) TRACK\(p.tracks.count > 1 ? "S" : "")") as NSString
         trackCountText.draw(at: CGPoint(x: 48, y: Metrics.overviewHeight + 6), withAttributes: TimelineStyle.cornerDim)
     }
 

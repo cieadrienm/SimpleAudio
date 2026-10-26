@@ -9,6 +9,7 @@ struct TransportView: View {
     let onZoomFit: () -> Void
 
     var body: some View {
+        let _ = model.language
         HStack(spacing: 10) {
             leftControls
             timecodeBadge
@@ -32,7 +33,7 @@ struct TransportView: View {
         HStack(spacing: 5) {
             IconButton(
                 symbol: "sidebar.left",
-                helpText: "Afficher/Masquer la barre latérale",
+                helpText: L("Afficher/Masquer la barre latérale (⌥⌘S)", "Show/Hide Sidebar (⌥⌘S)"),
                 active: model.showSidebar
             ) {
                 model.showSidebar.toggle()
@@ -42,22 +43,22 @@ struct TransportView: View {
                 .frame(height: 16)
                 .padding(.horizontal, 2)
 
-            IconButton(symbol: "backward.end.fill", helpText: "Retour au début (Entrée)") {
+            IconButton(symbol: "backward.end.fill", helpText: L("Retour au début (Entrée)", "Rewind to Start (Return)")) {
                 model.seek(to: 0)
             }
             IconButton(
                 symbol: model.transportPlaying ? "pause.fill" : "play.fill",
-                helpText: "Lecture / Pause (Espace)",
+                helpText: L("Lecture / Pause (Espace)", "Play / Pause (Space)"),
                 active: model.transportPlaying
             ) {
                 model.togglePlay()
             }
-            IconButton(symbol: "stop.fill", helpText: "Stop") {
+            IconButton(symbol: "stop.fill", helpText: L("Stop", "Stop")) {
                 model.stop()
             }
             IconButton(
                 symbol: "repeat",
-                helpText: "Lecture en boucle (⌘L)",
+                helpText: L("Lecture en boucle (⌘L)", "Loop Playback (⌘L)"),
                 active: model.store.project.loopRange != nil
             ) {
                 model.toggleLoop()
@@ -110,50 +111,50 @@ struct TransportView: View {
 
     private var centerActions: some View {
         HStack(spacing: 4) {
-            TextButton(title: "Scinder", symbol: "scissors", compact: true) {
+            TextButton(title: L("Scinder", "Split"), symbol: "scissors", compact: true) {
                 model.splitAtPlayhead()
             }
-            .help("Scinder à la tête de lecture ou aux bornes de la plage (B)")
+            .help(L("Scinder à la tête de lecture ou aux bornes de la plage (B)", "Split at playhead or selection range bounds (B)"))
 
             if model.activeTrack?.isMIDI == true || !model.selectedNotes.isEmpty {
                 TextButton(
-                    title: "Piano-Roll",
+                    title: L("Piano-Roll", "Piano Roll"),
                     symbol: "pianokeys",
                     prominent: model.activeTrack?.pianoRollExpanded == true,
                     compact: true
                 ) {
                     model.toggleSelectedTrackPianoRoll()
                 }
-                .help("Ouvrir/Réduire le Piano-Roll de la piste MIDI (P)")
+                .help(L("Ouvrir/Réduire le Piano-Roll de la piste MIDI (P)", "Expand/Collapse MIDI Track Piano Roll (P)"))
 
-                TextButton(title: "Quantifier", symbol: "waveform.path.ecg", compact: true) {
+                TextButton(title: L("Quantifier", "Quantize"), symbol: "waveform.path.ecg", compact: true) {
                     model.quantizeSelection(subdivisionBeats: 0.25)
                 }
-                .help("Quantifier les notes sur la double-croche 1/16 (Q)")
+                .help(L("Quantifier les notes sur la double-croche 1/16 (Q)", "Quantize notes to 1/16th grid (Q)"))
             } else {
-                TextButton(title: "Fondu ↗", compact: true) {
+                TextButton(title: L("Fondu ↗", "Fade ↗"), compact: true) {
                     model.applyFadeIn(duration: 0.5)
                 }
-                .help("Appliquer un fondu d'entrée sur la plage ou le clip sélectionné")
+                .help(L("Appliquer un fondu d'entrée sur la plage ou le clip sélectionné", "Apply fade-in to selection range or selected clip"))
 
-                TextButton(title: "Fondu ↘", compact: true) {
+                TextButton(title: L("Fondu ↘", "Fade ↘"), compact: true) {
                     model.applyFadeOut(duration: 0.5)
                 }
-                .help("Appliquer un fondu de sortie sur la plage ou le clip sélectionné")
+                .help(L("Appliquer un fondu de sortie sur la plage ou le clip sélectionné", "Apply fade-out to selection range or selected clip"))
             }
 
             TextButton(
-                title: "Rogner",
+                title: L("Rogner", "Crop"),
                 symbol: "crop",
                 compact: true,
                 disabled: model.selectionRange == nil
             ) {
                 model.cropToSelection()
             }
-            .help("Garder uniquement la plage sélectionnée (⌘T)")
+            .help(L("Garder uniquement la plage sélectionnée (⌘T)", "Keep only the selected time range (⌘T)"))
 
             TextButton(
-                title: "Silence",
+                title: L("Silence", "Silence"),
                 symbol: "speaker.slash",
                 compact: true,
                 disabled: model.selectionRange == nil && model.selectedClips.isEmpty && model.selectedNotes.isEmpty
@@ -164,23 +165,23 @@ struct TransportView: View {
                     model.toggleMuteSelectedClips()
                 }
             }
-            .help("Silencer la plage sélectionnée ou couper le son du clip / des notes")
+            .help(L("Silencer la plage sélectionnée ou couper le son du clip / des notes", "Silence selected range or mute selected clip / notes"))
 
             if model.activeTrack?.isMIDI == true {
                 soundbankMenu
             } else {
                 TextButton(
-                    title: "Normaliser",
+                    title: L("Normaliser", "Normalize"),
                     symbol: "waveform",
                     compact: true,
                     disabled: model.selectedClips.isEmpty && model.store.project.allClips.isEmpty
                 ) {
                     model.normalizeSelectedClips(targetDB: -0.1)
                 }
-                .help("Normaliser le niveau crête à -0.1 dBFS")
+                .help(L("Normaliser le niveau crête à -0.1 dBFS", "Normalize peak level to -0.1 dBFS"))
             }
 
-            IconButton(symbol: "bookmark", helpText: "Ajouter un marqueur (K)") {
+            IconButton(symbol: "bookmark", helpText: L("Ajouter un marqueur (K)", "Add Marker (K)")) {
                 model.addMarkerAtPlayhead()
             }
         }
@@ -188,7 +189,7 @@ struct TransportView: View {
 
     private var soundbankMenu: some View {
         Menu {
-            Section("Banques General MIDI / Synth") {
+            Section(L("Banques General MIDI / Synth", "General MIDI / Synth Banks")) {
                 ForEach(SoundPreset.allCases) { preset in
                     Button {
                         model.selectSoundPreset(preset)
@@ -203,7 +204,7 @@ struct TransportView: View {
             }
             let recents = SoundfontLibrary.shared.recentEntries()
             if !recents.isEmpty {
-                Section("SoundFonts récentes (.sf2 / .dls)") {
+                Section(L("SoundFonts récentes (.sf2 / .dls)", "Recent SoundFonts (.sf2 / .dls)")) {
                     ForEach(recents) { entry in
                         Button(entry.name) {
                             _ = model.loadSoundfont(url: entry.url)
@@ -212,7 +213,7 @@ struct TransportView: View {
                 }
             }
             Divider()
-            Button("Charger une SoundFont (.sf2 / .dls)…") {
+            Button(L("Charger une SoundFont (.sf2 / .dls)…", "Load SoundFont (.sf2 / .dls)…")) {
                 model.chooseSoundfontPanel()
             }
         } label: {
@@ -224,17 +225,17 @@ struct TransportView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
-        .help("Choisir la banque de sons MIDI (General MIDI ou SoundFont .sf2)")
+        .help(L("Choisir la banque de sons MIDI (General MIDI ou SoundFont .sf2)", "Select MIDI soundbank (General MIDI or .sf2 SoundFont)"))
     }
 
     private var rightControls: some View {
         HStack(spacing: 6) {
             TransportMeterWrapper(engine: model.engine)
-                .help("Niveau crête stéréo L / R en temps réel")
+                .help(L("Niveau crête stéréo L / R en temps réel", "Real-time stereo L / R peak meter"))
 
             IconButton(
                 symbol: "dot.scope",
-                helpText: "Magnétisme (N)",
+                helpText: L("Magnétisme (N)", "Snapping (N)"),
                 active: model.snapping,
                 tint: Color(nsColor: Theme.snapGuide)
             ) {
@@ -242,27 +243,27 @@ struct TransportView: View {
             }
 
             HStack(spacing: 2) {
-                IconButton(symbol: "minus.magnifyingglass", helpText: "Zoom arrière (-)") {
+                IconButton(symbol: "minus.magnifyingglass", helpText: L("Zoom arrière (-)", "Zoom Out (-)")) {
                     onZoomOut()
                 }
-                IconButton(symbol: "arrow.left.and.right.square", helpText: "Basculer le zoom intelligent (Z)") {
+                IconButton(symbol: "arrow.left.and.right.square", helpText: L("Basculer le zoom intelligent (Z)", "Toggle Smart Zoom (Z)")) {
                     onZoomFit()
                 }
-                IconButton(symbol: "plus.magnifyingglass", helpText: "Zoom avant (+)") {
+                IconButton(symbol: "plus.magnifyingglass", helpText: L("Zoom avant (+)", "Zoom In (+)")) {
                     onZoomIn()
                 }
             }
 
             IconButton(
                 symbol: "sidebar.right",
-                helpText: "Afficher/Masquer l'inspecteur",
+                helpText: L("Afficher/Masquer l'inspecteur (⌥⌘I)", "Show/Hide Inspector (⌥⌘I)"),
                 active: model.showInspector
             ) {
                 model.showInspector.toggle()
             }
 
             TextButton(
-                title: "Exporter…",
+                title: L("Exporter…", "Export…"),
                 symbol: "square.and.arrow.up",
                 prominent: true,
                 disabled: !model.store.project.hasContent

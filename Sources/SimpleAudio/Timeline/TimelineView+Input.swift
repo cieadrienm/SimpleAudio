@@ -262,7 +262,10 @@ extension TimelineView {
         case .marker(let id):
             model.selectedMarkerID = id
             if let marker = p.markers.first(where: { $0.id == id }) {
-                model.statusMessage = "Marqueur « \(marker.name) » sélectionné (Z : zoom 15s / zone / piste entière)"
+                model.statusMessage = L(
+                    "Marqueur « \(marker.name) » sélectionné (Z : zoom 15s / zone / piste entière)",
+                    "Marker “\(marker.name)” selected (Z: zoom 15s / section / full project)"
+                )
                 if event.clickCount == 2 {
                     model.seek(to: marker.time)
                     return
@@ -298,7 +301,7 @@ extension TimelineView {
             if let ti = p.trackIndex(of: trackID) {
                 let track = p.tracks[ti]
                 model.engine.previewNote(pitch: pitch, velocity: 100, program: track.program, isDrum: track.isDrum || track.channel == 9)
-                model.statusMessage = "Clavier : \(GeneralMIDI.noteName(pitch)) (MIDI \(pitch))"
+                model.statusMessage = L("Clavier : \(GeneralMIDI.noteName(pitch)) (MIDI \(pitch))", "Keyboard: \(GeneralMIDI.noteName(pitch)) (MIDI \(pitch))")
             }
 
         case .rangeEdge(let edge):
@@ -450,7 +453,7 @@ extension TimelineView {
                 let clickedPitch = pitch(forY: pt.y, in: row)
                 let defaultDur = max(0.15, p.secondsPerBeat * 0.5)
                 var createdID: UUID?
-                model.store.perform("Créer une note (\(GeneralMIDI.noteName(clickedPitch)))") { proj in
+                model.store.perform(L("Créer une note (\(GeneralMIDI.noteName(clickedPitch)))", "Create Note (\(GeneralMIDI.noteName(clickedPitch)))")) { proj in
                     createdID = proj.addNote(
                         toTrack: row.track.id,
                         pitch: clickedPitch,
@@ -553,7 +556,7 @@ extension TimelineView {
             let targets = snapTargets(in: base)
             let (snappedTime, guide) = snap(rawTime, targets: targets)
             snapGuide = guide
-            stage("Déplacer le marqueur", on: base) { proj in
+            stage(L("Déplacer le marqueur", "Move Marker"), on: base) { proj in
                 try? Operations.moveMarker(&proj, id: markerID, to: snappedTime)
             }
             showTip(TimeFormat.timecode(snappedTime), at: pt)
@@ -580,7 +583,7 @@ extension TimelineView {
             let b = max(otherBound, snapped)
             model.selectionRange = a...b
             let currentEdge = edge == .start ? a : b
-            showTip("Plage \(TimeFormat.timecode(currentEdge)) (\(TimeFormat.shortDuration(b - a)))", at: pt)
+            showTip(L("Plage \(TimeFormat.timecode(currentEdge)) (\(TimeFormat.shortDuration(b - a)))", "Range \(TimeFormat.timecode(currentEdge)) (\(TimeFormat.shortDuration(b - a)))"), at: pt)
             needsDisplay = true
 
         case .press(let clipID, let trackID, let start, let grab, let slip):
@@ -619,7 +622,7 @@ extension TimelineView {
                 originalTrackID: originalTrackID,
                 current: pt
             )
-            stage("Déplacer le clip", on: base) { proj in
+            stage(L("Déplacer le clip", "Move Clip"), on: base) { proj in
                 try? Operations.moveClip(&proj, id: clipID, toTrack: targetTrackID, offset: snappedStart)
             }
             showTip("\(TimeFormat.timecode(snappedStart))", at: pt)
@@ -628,7 +631,7 @@ extension TimelineView {
             let dt = time(for: pt.x) - grab
             let maxStart = max(0, original.sourceDuration - original.duration)
             let newSourceStart = min(max(0, original.sourceStart - dt), maxStart)
-            stage("Glisser la source", on: base) { proj in
+            stage(L("Glisser la source", "Slip Source"), on: base) { proj in
                 try? Operations.slipClip(&proj, id: clipID, toSourceStart: newSourceStart)
             }
             showTip("Source \(TimeFormat.timecode(newSourceStart))", at: pt)
@@ -647,7 +650,7 @@ extension TimelineView {
                 let delta = clampedOffset - original.offset
                 let newSourceStart = original.sourceStart + delta
                 let newDuration = original.duration - delta
-                stage("Rogner l'entrée", on: base) { proj in
+                stage(L("Rogner l'entrée", "Trim In"), on: base) { proj in
                     try? Operations.trimClip(
                         &proj,
                         id: clipID,
@@ -656,14 +659,14 @@ extension TimelineView {
                         duration: newDuration
                     )
                 }
-                showTip("Entrée \(TimeFormat.timecode(clampedOffset)) (\(TimeFormat.shortDuration(newDuration)))", at: pt)
+                showTip(L("Entrée \(TimeFormat.timecode(clampedOffset)) (\(TimeFormat.shortDuration(newDuration)))", "In \(TimeFormat.timecode(clampedOffset)) (\(TimeFormat.shortDuration(newDuration)))"), at: pt)
 
             case .end:
                 let minEnd = original.offset + AudioClip.minDuration
                 let maxEnd = original.offset + (original.sourceDuration - original.sourceStart)
                 let clampedEnd = min(max(snappedEdge, minEnd), maxEnd)
                 let newDuration = clampedEnd - original.offset
-                stage("Rogner la sortie", on: base) { proj in
+                stage(L("Rogner la sortie", "Trim Out"), on: base) { proj in
                     try? Operations.trimClip(
                         &proj,
                         id: clipID,
@@ -672,7 +675,7 @@ extension TimelineView {
                         duration: newDuration
                     )
                 }
-                showTip("Sortie \(TimeFormat.timecode(clampedEnd)) (\(TimeFormat.shortDuration(newDuration)))", at: pt)
+                showTip(L("Sortie \(TimeFormat.timecode(clampedEnd)) (\(TimeFormat.shortDuration(newDuration)))", "Out \(TimeFormat.timecode(clampedEnd)) (\(TimeFormat.shortDuration(newDuration)))"), at: pt)
             }
 
         case .fade(let clipID, let isIn, let grab, let original):
@@ -682,7 +685,7 @@ extension TimelineView {
                 ? max(0, original.duration - original.fadeOut)
                 : max(0, original.duration - original.fadeIn)
             let length = min(max(0, rawLength), maxLength)
-            stage(isIn ? "Fondu d'entrée" : "Fondu de sortie", on: base) { proj in
+            stage(isIn ? L("Fondu d'entrée", "Fade In") : L("Fondu de sortie", "Fade Out"), on: base) { proj in
                 try? Operations.setFade(
                     &proj,
                     id: clipID,
@@ -690,7 +693,7 @@ extension TimelineView {
                     fadeOut: isIn ? nil : length
                 )
             }
-            let label = isIn ? "Fondu d'entrée" : "Fondu de sortie"
+            let label = isIn ? L("Fondu d'entrée", "Fade In") : L("Fondu de sortie", "Fade Out")
             showTip("\(label) \(TimeFormat.shortDuration(length)) (\(original.fadeShape.label))", at: pt)
 
         case .pressNote(let noteID, let trackID, let startPoint, let grabTime, let originalNote):
@@ -732,11 +735,14 @@ extension TimelineView {
                 )
             }
 
-            stage("Déplacer la note", on: base) { proj in
+            stage(L("Déplacer la note", "Move Note"), on: base) { proj in
                 proj.moveNote(noteID, toStart: snappedStart, pitch: newPitch)
             }
             let bb = base.barBeat(forSeconds: snappedStart)
-            showTip("\(GeneralMIDI.noteName(newPitch)) (\(newPitch)) · \(TimeFormat.timecode(snappedStart)) · Mes \(bb.bar).\(bb.beat)", at: pt)
+            showTip(L(
+                "\(GeneralMIDI.noteName(newPitch)) (\(newPitch)) · \(TimeFormat.timecode(snappedStart)) · Mes \(bb.bar).\(bb.beat)",
+                "\(GeneralMIDI.noteName(newPitch)) (\(newPitch)) · \(TimeFormat.timecode(snappedStart)) · Bar \(bb.bar).\(bb.beat)"
+            ), at: pt)
 
         case .trimNote(let noteID, let edge, let grabTime, let originalNote):
             let rawEdge = max(0, time(for: pt.x) - grabTime)
@@ -748,24 +754,24 @@ extension TimelineView {
             case .start:
                 let clampedStart = min(max(0, snappedEdge), originalNote.end - MIDINote.minDuration)
                 let newDuration = originalNote.end - clampedStart
-                stage("Rogner le début de la note", on: base) { proj in
+                stage(L("Rogner le début de la note", "Trim Note Start"), on: base) { proj in
                     proj.trimNote(noteID, start: clampedStart, duration: newDuration)
                 }
-                showTip("Début \(TimeFormat.timecode(clampedStart)) (\(TimeFormat.shortDuration(newDuration)))", at: pt)
+                showTip(L("Début \(TimeFormat.timecode(clampedStart)) (\(TimeFormat.shortDuration(newDuration)))", "Start \(TimeFormat.timecode(clampedStart)) (\(TimeFormat.shortDuration(newDuration)))"), at: pt)
 
             case .end:
                 let clampedEnd = max(originalNote.start + MIDINote.minDuration, snappedEdge)
                 let newDuration = clampedEnd - originalNote.start
-                stage("Ajuster la durée de la note", on: base) { proj in
+                stage(L("Ajuster la durée de la note", "Trim Note Duration"), on: base) { proj in
                     proj.trimNote(noteID, start: originalNote.start, duration: newDuration)
                 }
-                showTip("Durée \(TimeFormat.shortDuration(newDuration))", at: pt)
+                showTip(L("Durée \(TimeFormat.shortDuration(newDuration))", "Duration \(TimeFormat.shortDuration(newDuration))"), at: pt)
             }
 
         case .trackGain(let trackID, let startY, let originalDB):
             let dy = startY - pt.y
             let newDB = min(max(originalDB + Double(dy) * 0.2, -60), 24)
-            stage("Gain de la piste", on: base) { proj in
+            stage(L("Gain de la piste", "Track Gain"), on: base) { proj in
                 try? Operations.setTrackGain(&proj, id: trackID, gainDB: newDB)
             }
             showTip("Gain \(TimeFormat.decibels(newDB))", at: pt)
@@ -773,7 +779,7 @@ extension TimelineView {
         case .trackPan(let trackID, let startX, let originalPan):
             let dx = pt.x - startX
             let newPan = min(max(originalPan + Double(dx) * 0.015, -1), 1)
-            stage("Panoramique de la piste", on: base) { proj in
+            stage(L("Panoramique de la piste", "Track Pan"), on: base) { proj in
                 try? Operations.setTrackPan(&proj, id: trackID, pan: newPan)
             }
             showTip("Pan \(TimeFormat.pan(newPan))", at: pt)
@@ -798,7 +804,7 @@ extension TimelineView {
             }
             drag = .moveTrack(trackID: trackID, targetIndex: targetIdx)
             if targetIdx != originalIdx {
-                stage("Réordonner la piste", on: base) { proj in
+                stage(L("Réordonner la piste", "Reorder Track"), on: base) { proj in
                     proj.moveTrack(trackID, to: targetIdx)
                 }
             } else {
@@ -809,7 +815,7 @@ extension TimelineView {
                 refresh()
             }
             let trackName = base.tracks[originalIdx].name
-            showTip("\(trackName) → piste \(targetIdx + 1)/\(base.tracks.count)", at: CGPoint(x: max(pt.x, Metrics.headerWidth + 44), y: pt.y))
+            showTip(L("\(trackName) → piste \(targetIdx + 1)/\(base.tracks.count)", "\(trackName) → track \(targetIdx + 1)/\(base.tracks.count)"), at: CGPoint(x: max(pt.x, Metrics.headerWidth + 44), y: pt.y))
         }
     }
 

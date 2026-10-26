@@ -36,12 +36,13 @@ struct SidebarView: View {
     }
 
     var body: some View {
+        let _ = model.language
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     // 1. Tracks Section
                     VStack(alignment: .leading, spacing: 6) {
-                        SectionHeader("Pistes") {
+                        SectionHeader(L("Pistes", "Tracks")) {
                             HStack(spacing: 6) {
                                 Button {
                                     model.addMIDITrack()
@@ -51,7 +52,7 @@ struct SidebarView: View {
                                         .foregroundStyle(Color(nsColor: Theme.textDim))
                                 }
                                 .buttonStyle(.plain)
-                                .help("Ajouter une piste MIDI")
+                                .help(L("Ajouter une piste MIDI", "Add MIDI Track"))
 
                                 Button {
                                     model.addTrack()
@@ -61,7 +62,7 @@ struct SidebarView: View {
                                         .foregroundStyle(Color(nsColor: Theme.textDim))
                                 }
                                 .buttonStyle(.plain)
-                                .help("Ajouter une piste audio (⌥⌘N)")
+                                .help(L("Ajouter une piste audio (⌥⌘N)", "Add Audio Track (⌥⌘N)"))
                             }
                         }
 
@@ -74,7 +75,7 @@ struct SidebarView: View {
 
                     // 2. Audio Files Section
                     VStack(alignment: .leading, spacing: 6) {
-                        SectionHeader("Fichiers audio") {
+                        SectionHeader(L("Fichiers audio", "Audio Files")) {
                             Button {
                                 model.importAudioPanel()
                             } label: {
@@ -83,11 +84,11 @@ struct SidebarView: View {
                                     .foregroundStyle(Color(nsColor: Theme.textDim))
                             }
                             .buttonStyle(.plain)
-                            .help("Importer des fichiers audio (⌘I)")
+                            .help(L("Importer des fichiers audio (⌘I)", "Import Audio Files (⌘I)"))
                         }
 
                         if sourceFiles.isEmpty {
-                            Text("Aucun fichier importé")
+                            Text(L("Aucun fichier importé", "No imported files"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(nsColor: Theme.textFaint))
                                 .padding(.vertical, 4)
@@ -102,7 +103,7 @@ struct SidebarView: View {
 
                     // 3. Markers Section
                     VStack(alignment: .leading, spacing: 6) {
-                        SectionHeader("Marqueurs") {
+                        SectionHeader(L("Marqueurs", "Markers")) {
                             Button {
                                 model.addMarkerAtPlayhead()
                             } label: {
@@ -111,11 +112,11 @@ struct SidebarView: View {
                                     .foregroundStyle(Color(nsColor: Theme.textDim))
                             }
                             .buttonStyle(.plain)
-                            .help("Ajouter un marqueur à la tête de lecture (M)")
+                            .help(L("Ajouter un marqueur à la tête de lecture (K)", "Add Marker at Playhead (K)"))
                         }
 
                         if project.markers.isEmpty {
-                            Text("Aucun marqueur")
+                            Text(L("Aucun marqueur", "No markers"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(nsColor: Theme.textFaint))
                                 .padding(.vertical, 4)
@@ -133,7 +134,7 @@ struct SidebarView: View {
 
             // Bottom quick action bar
             HStack(spacing: 5) {
-                TextButton(title: "Importer…", symbol: "waveform.badge.plus", compact: true) {
+                TextButton(title: L("Importer…", "Import…"), symbol: "waveform.badge.plus", compact: true) {
                     model.importAudioPanel()
                 }
                 Spacer(minLength: 2)
@@ -210,7 +211,7 @@ struct SidebarView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(trackIdx == 0)
-                    .help("Monter la piste (⌥↑)")
+                    .help(L("Monter la piste (⌥↑)", "Move Track Up (⌥↑)"))
 
                     Button {
                         model.moveTrack(track.id, by: 1)
@@ -222,7 +223,7 @@ struct SidebarView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(trackIdx >= totalTracks - 1)
-                    .help("Descendre la piste (⌥↓)")
+                    .help(L("Descendre la piste (⌥↓)", "Move Track Down (⌥↓)"))
                 }
             }
         }
@@ -238,24 +239,24 @@ struct SidebarView: View {
         }
         .contextMenu {
             if totalTracks > 1 {
-                Button("Monter la piste (⌥↑)") {
+                Button(L("Monter la piste (⌥↑)", "Move Track Up (⌥↑)")) {
                     model.moveTrack(track.id, by: -1)
                 }
                 .disabled(trackIdx == 0)
 
-                Button("Descendre la piste (⌥↓)") {
+                Button(L("Descendre la piste (⌥↓)", "Move Track Down (⌥↓)")) {
                     model.moveTrack(track.id, by: 1)
                 }
                 .disabled(trackIdx >= totalTracks - 1)
 
                 Divider()
             }
-            Button("Dupliquer la piste") {
+            Button(L("Dupliquer la piste", "Duplicate Track")) {
                 model.selectedTrackID = track.id
                 model.duplicateSelectedTrack()
             }
             if totalTracks > 1 {
-                Button("Supprimer la piste", role: .destructive) {
+                Button(L("Supprimer la piste", "Delete Track"), role: .destructive) {
                     model.selectedTrackID = track.id
                     model.removeSelectedTrack()
                 }

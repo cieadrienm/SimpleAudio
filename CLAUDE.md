@@ -1,5 +1,10 @@
 # Instructions Agent — SimpleAudio
 
+## Lire d'abord
+- `~/Programmation/SimpleFamily/GUIDELINES.md` — les règles communes de la famille Simple (G1…).
+- `DECISIONS.md` — D1…, le pourquoi de chaque choix. **Ajouter une entrée pour tout choix structurant.**
+- `README.md` — fonctionnalités, ligne de commande, limites.
+
 ## Identité & Crédits
 - Compagnie : **cie Adrien M** (ou **Compagnie Adrien M**).
 - Identifiant de bundle : `net.cieadrienm.simpleaudio`.

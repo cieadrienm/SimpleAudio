@@ -10,10 +10,10 @@ public enum FadeShape: String, Codable, CaseIterable, Sendable, Identifiable {
 
     public var label: String {
         switch self {
-        case .cosine: return "Courbe S"
-        case .linear: return "Linéaire"
-        case .exponential: return "Exponentielle"
-        case .logarithmic: return "Logarithmique"
+        case .cosine: return L("Courbe S", "S-Curve")
+        case .linear: return L("Linéaire", "Linear")
+        case .exponential: return L("Exponentielle", "Exponential")
+        case .logarithmic: return L("Logarithmique", "Logarithmic")
         }
     }
 
@@ -255,7 +255,7 @@ public enum GeneralMIDI {
     ]
 
     public static func programName(_ program: Int, isDrum: Bool = false) -> String {
-        if isDrum { return "Kit de Batterie (Canal 10)" }
+        if isDrum { return L("Kit de Batterie (Canal 10)", "Drum Kit (Channel 10)") }
         let idx = min(max(program, 0), 127)
         return programs[idx]
     }

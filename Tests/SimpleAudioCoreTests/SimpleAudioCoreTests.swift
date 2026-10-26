@@ -194,4 +194,92 @@ struct SimpleAudioCoreTests {
         #expect(decoded.noteCount == 3)
         #expect(decoded.tracks.first?.program == 80)
     }
+
+    @Test("Bilingual French/English localization switching")
+    func testLocalizationSwitching() {
+        let prev = Localization.current
+        defer { Localization.current = prev }
+
+        Localization.current = .fr
+        #expect(!Localization.isEnglish)
+        #expect(L("Scinder", "Split") == "Scinder")
+        #expect(FadeShape.cosine.label == "Courbe S")
+
+        Localization.current = .en
+        #expect(Localization.isEnglish)
+        #expect(L("Scinder", "Split") == "Split")
+        #expect(FadeShape.cosine.label == "S-Curve")
+    }
+
+    @Test("SimpleUpdater semantic version comparison, JSON parsing, and SHA-256 verification")
+    func testSimpleUpdater() throws {
+        // Semantic version comparison
+        #expect(SimpleUpdater.isNewer(candidateVersion: "1.1.0", thanVersion: "1.0.0"))
+        #expect(SimpleUpdater.isNewer(candidateVersion: "v1.0.1", thanVersion: "1.0.0"))
+        #expect(!SimpleUpdater.isNewer(candidateVersion: "1.0.0", thanVersion: "1.0.0"))
+        #expect(!SimpleUpdater.isNewer(candidateVersion: "0.9.0", thanVersion: "1.0.0"))
+        #expect(SimpleUpdater.isNewer(candidateVersion: "1.0.0", candidateBuild: 12, thanVersion: "1.0.0", currentBuild: 10))
+        #expect(!SimpleUpdater.isNewer(candidateVersion: "1.0.0", candidateBuild: 10, thanVersion: "1.0.0", currentBuild: 10))
+
+        // Multi-app JSON manifest parsing
+        let multiAppManifest = """
+        {
+          "net.cieadrienm.simpleaudio": {
+            "version": "1.2.0",
+            "build": 25,
+            "url": "https://example.com/SimpleAudio-1.2.0.zip",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "notes_fr": "Nouveautés FR",
+            "notes_en": "New features EN"
+          }
+        }
+        """.data(using: .utf8)!
+        let parsedMulti = try SimpleUpdater.parseRelease(from: multiAppManifest)
+        #expect(parsedMulti.version == "1.2.0")
+        #expect(parsedMulti.build == 25)
+        #expect(parsedMulti.downloadURL.absoluteString == "https://example.com/SimpleAudio-1.2.0.zip")
+        #expect(parsedMulti.sha256 == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        #expect(parsedMulti.notesFR == "Nouveautés FR")
+        #expect(parsedMulti.notesEN == "New features EN")
+
+        // Single-app JSON manifest parsing
+        let singleManifest = """
+        {
+          "version": "v1.3.0",
+          "url": "https://example.com/SimpleAudio-1.3.0.zip",
+          "notes": "Single notes"
+        }
+        """.data(using: .utf8)!
+        let parsedSingle = try SimpleUpdater.parseRelease(from: singleManifest)
+        #expect(parsedSingle.version == "1.3.0")
+        #expect(parsedSingle.notesFR == "Single notes")
+
+        // GitHub Releases API JSON parsing
+        let githubJSON = """
+        {
+          "tag_name": "v1.4.2",
+          "html_url": "https://github.com/cieadrienm/SimpleAudio/releases/tag/v1.4.2",
+          "body": "Release notes body\\nSHA256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+          "assets": [
+            {
+              "name": "SimpleAudio-1.4.2.zip",
+              "browser_download_url": "https://github.com/cieadrienm/SimpleAudio/releases/download/v1.4.2/SimpleAudio-1.4.2.zip"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let parsedGitHub = try SimpleUpdater.parseRelease(from: githubJSON)
+        #expect(parsedGitHub.version == "1.4.2")
+        #expect(parsedGitHub.downloadURL.lastPathComponent == "SimpleAudio-1.4.2.zip")
+        #expect(parsedGitHub.sha256 == "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
+
+        // SHA-256 verification
+        let sampleData = Data("SimpleAudio test payload".utf8)
+        let digest = SimpleUpdater.sha256Hex(of: sampleData)
+        #expect(digest.count == 64)
+        #expect(SimpleUpdater.verifySHA256(of: sampleData, expected: digest))
+        #expect(SimpleUpdater.verifySHA256(of: sampleData, expected: digest.uppercased()))
+        #expect(!SimpleUpdater.verifySHA256(of: sampleData, expected: String(repeating: "0", count: 64)))
+        #expect(SimpleUpdater.verifySHA256(of: sampleData, expected: nil))
+    }
 }

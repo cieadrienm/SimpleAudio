@@ -1,11 +1,13 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import SimpleAudioCore
 
 struct WelcomeView: View {
     @Bindable var model: AppModel
     @State private var targeted = false
 
     var body: some View {
+        let _ = model.language
         VStack(spacing: 22) {
             ZStack {
                 Circle()
@@ -20,26 +22,29 @@ struct WelcomeView: View {
                 Text("SimpleAudio")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(nsColor: Theme.text))
-                Text("Glissez des fichiers Audio (WAV, AIFF, M4A, MP3, FLAC, CAF) ou MIDI (.mid, .sf2) ici")
+                Text(L(
+                    "Glissez des fichiers Audio (WAV, AIFF, M4A, MP3, FLAC, CAF) ou MIDI (.mid, .sf2) ici",
+                    "Drop Audio (WAV, AIFF, M4A, MP3, FLAC, CAF) or MIDI (.mid, .sf2) files here"
+                ))
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color(nsColor: Theme.textDim))
             }
 
             HStack(spacing: 10) {
-                TextButton(title: "Ouvrir Audio / MIDI…", symbol: "folder", prominent: true) {
+                TextButton(title: L("Ouvrir Audio / MIDI…", "Open Audio / MIDI…"), symbol: "folder", prominent: true) {
                     model.openDocumentPanel()
                 }
-                TextButton(title: "Démo Audio", symbol: "waveform") {
+                TextButton(title: L("Démo Audio", "Audio Demo"), symbol: "waveform") {
                     model.loadDemoProject()
                 }
-                TextButton(title: "Démo Hybride Audio + MIDI", symbol: "pianokeys") {
+                TextButton(title: L("Démo Hybride Audio + MIDI", "Hybrid Audio + MIDI Demo"), symbol: "pianokeys") {
                     model.loadHybridDemoProject()
                 }
             }
 
             if !model.recentFiles.isEmpty {
                 VStack(spacing: 6) {
-                    Text("RÉCENTS")
+                    Text(L("RÉCENTS", "RECENT"))
                         .font(.system(size: 9.5, weight: .semibold))
                         .kerning(0.8)
                         .foregroundStyle(Color(nsColor: Theme.textFaint))
@@ -58,12 +63,12 @@ struct WelcomeView: View {
             }
 
             HStack(spacing: 18) {
-                shortcutHint("Espace", "Lecture")
-                shortcutHint("B", "Scinder")
-                shortcutHint("P", "Piano-Roll")
-                shortcutHint("Q", "Quantifier")
-                shortcutHint("Z", "Zoom marqueur/curseur")
-                shortcutHint("⌘E", "Exporter")
+                shortcutHint(L("Espace", "Space"), L("Lecture", "Play"))
+                shortcutHint("B", L("Scinder", "Split"))
+                shortcutHint("P", L("Piano-Roll", "Piano Roll"))
+                shortcutHint("Q", L("Quantifier", "Quantize"))
+                shortcutHint("Z", L("Zoom marqueur/curseur", "Smart Zoom"))
+                shortcutHint("⌘E", L("Exporter", "Export"))
             }
             .padding(.top, 8)
         }

@@ -12,17 +12,17 @@ extension TimelineView {
         if let range = model.selectionRange,
            range.upperBound > range.lowerBound + 1e-4,
            clickTime >= range.lowerBound && clickTime <= range.upperBound {
-            addItem(menu, "Copier la plage (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))", action: #selector(ctxCopy))
-            addItem(menu, "Couper la plage", action: #selector(ctxCut))
-            addItem(menu, "Rogner sur la plage (Crop)", action: #selector(ctxCropRange))
-            addItem(menu, "Silencer la plage", action: #selector(ctxSilenceRange))
+            addItem(menu, L("Copier la plage (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))", "Copy Range (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))"), action: #selector(ctxCopy))
+            addItem(menu, L("Couper la plage", "Cut Range"), action: #selector(ctxCut))
+            addItem(menu, L("Rogner sur la plage (Crop)", "Crop to Range"), action: #selector(ctxCropRange))
+            addItem(menu, L("Silencer la plage", "Silence Range"), action: #selector(ctxSilenceRange))
             menu.addItem(.separator())
-            addItem(menu, "Fondu d'entrée sur la plage", action: #selector(ctxFadeInRange))
-            addItem(menu, "Fondu de sortie sur la plage", action: #selector(ctxFadeOutRange))
+            addItem(menu, L("Fondu d'entrée sur la plage", "Fade In on Range"), action: #selector(ctxFadeInRange))
+            addItem(menu, L("Fondu de sortie sur la plage", "Fade Out on Range"), action: #selector(ctxFadeOutRange))
             menu.addItem(.separator())
-            addItem(menu, "Supprimer la plage", action: #selector(ctxDelete))
-            addItem(menu, "Supprimer et raccorder la plage", action: #selector(ctxRippleDelete))
-            addItem(menu, "Boucler sur la plage", action: #selector(ctxLoopRange))
+            addItem(menu, L("Supprimer la plage", "Delete Range"), action: #selector(ctxDelete))
+            addItem(menu, L("Supprimer et raccorder la plage", "Ripple Delete Range"), action: #selector(ctxRippleDelete))
+            addItem(menu, L("Boucler sur la plage", "Loop Range"), action: #selector(ctxLoopRange))
             menu.addItem(.separator())
         }
 
@@ -36,17 +36,17 @@ extension TimelineView {
             }
             needsDisplay = true
 
-            addItem(menu, "Scinder ici", action: #selector(ctxSplitAtClick(_:)), represented: clickTime)
-            addItem(menu, "Sélectionner la plage du clip", action: #selector(ctxSelectClipRange(_:)), represented: clipID)
+            addItem(menu, L("Scinder ici", "Split Here"), action: #selector(ctxSplitAtClick(_:)), represented: clickTime)
+            addItem(menu, L("Sélectionner la plage du clip", "Select Clip Range"), action: #selector(ctxSelectClipRange(_:)), represented: clipID)
             menu.addItem(.separator())
-            addItem(menu, "Copier", action: #selector(ctxCopy))
-            addItem(menu, "Couper", action: #selector(ctxCut))
-            addItem(menu, "Dupliquer le clip", action: #selector(ctxDuplicate))
+            addItem(menu, L("Copier", "Copy"), action: #selector(ctxCopy))
+            addItem(menu, L("Couper", "Cut"), action: #selector(ctxCut))
+            addItem(menu, L("Dupliquer le clip", "Duplicate Clip"), action: #selector(ctxDuplicate))
             menu.addItem(.separator())
-            addItem(menu, "Normaliser à -0.1 dBFS", action: #selector(ctxNormalize))
-            addItem(menu, "Supprimer les silences aux extrémités", action: #selector(ctxStripSilence))
-            addItem(menu, "Inverser le sens (Reverse)", action: #selector(ctxReverse))
-            addItem(menu, "Activer/Couper le son du clip", action: #selector(ctxToggleClipMute))
+            addItem(menu, L("Normaliser à -0.1 dBFS", "Normalize to -0.1 dBFS"), action: #selector(ctxNormalize))
+            addItem(menu, L("Supprimer les silences aux extrémités", "Strip Silence at Edges"), action: #selector(ctxStripSilence))
+            addItem(menu, L("Inverser le sens (Reverse)", "Reverse Clip"), action: #selector(ctxReverse))
+            addItem(menu, L("Activer/Couper le son du clip", "Mute/Unmute Clip"), action: #selector(ctxToggleClipMute))
 
             // Fade shape submenu
             let shapeMenu = NSMenu()
@@ -59,13 +59,13 @@ extension TimelineView {
                 }
                 shapeMenu.addItem(item)
             }
-            let shapeParent = NSMenuItem(title: "Courbe de fondu", action: nil, keyEquivalent: "")
+            let shapeParent = NSMenuItem(title: L("Courbe de fondu", "Fade Curve"), action: nil, keyEquivalent: "")
             shapeParent.submenu = shapeMenu
             menu.addItem(shapeParent)
 
             menu.addItem(.separator())
-            addItem(menu, "Supprimer", action: #selector(ctxDelete))
-            addItem(menu, "Supprimer et raccorder", action: #selector(ctxRippleDelete))
+            addItem(menu, L("Supprimer", "Delete"), action: #selector(ctxDelete))
+            addItem(menu, L("Supprimer et raccorder", "Ripple Delete"), action: #selector(ctxRippleDelete))
 
         case .noteBody(let noteID, _), .noteEdge(let noteID, _):
             if !model.selectedNotes.contains(noteID) {
@@ -77,21 +77,21 @@ extension TimelineView {
             }
             needsDisplay = true
 
-            addItem(menu, "Scinder la note ici", action: #selector(ctxSplitAtClick(_:)), represented: clickTime)
-            addItem(menu, "Quantifier à la double-croche (1/16)", action: #selector(ctxQuantize))
+            addItem(menu, L("Scinder la note ici", "Split Note Here"), action: #selector(ctxSplitAtClick(_:)), represented: clickTime)
+            addItem(menu, L("Quantifier à la double-croche (1/16)", "Quantize to 1/16th Note"), action: #selector(ctxQuantize))
             menu.addItem(.separator())
-            addItem(menu, "Transposer +1 demi-ton", action: #selector(ctxTransposeUp1))
-            addItem(menu, "Transposer −1 demi-ton", action: #selector(ctxTransposeDown1))
-            addItem(menu, "Transposer +1 octave (+12)", action: #selector(ctxTransposeUp12))
-            addItem(menu, "Transposer −1 octave (−12)", action: #selector(ctxTransposeDown12))
+            addItem(menu, L("Transposer +1 demi-ton", "Transpose +1 Semitone"), action: #selector(ctxTransposeUp1))
+            addItem(menu, L("Transposer −1 demi-ton", "Transpose −1 Semitone"), action: #selector(ctxTransposeDown1))
+            addItem(menu, L("Transposer +1 octave (+12)", "Transpose +1 Octave (+12)"), action: #selector(ctxTransposeUp12))
+            addItem(menu, L("Transposer −1 octave (−12)", "Transpose −1 Octave (−12)"), action: #selector(ctxTransposeDown12))
             menu.addItem(.separator())
-            addItem(menu, "Copier", action: #selector(ctxCopy))
-            addItem(menu, "Couper", action: #selector(ctxCut))
-            addItem(menu, "Dupliquer la note", action: #selector(ctxDuplicate))
-            addItem(menu, "Activer/Couper le son de la note", action: #selector(ctxToggleClipMute))
+            addItem(menu, L("Copier", "Copy"), action: #selector(ctxCopy))
+            addItem(menu, L("Couper", "Cut"), action: #selector(ctxCut))
+            addItem(menu, L("Dupliquer la note", "Duplicate Note"), action: #selector(ctxDuplicate))
+            addItem(menu, L("Activer/Couper le son de la note", "Mute/Unmute Note"), action: #selector(ctxToggleClipMute))
             menu.addItem(.separator())
-            addItem(menu, "Supprimer", action: #selector(ctxDelete))
-            addItem(menu, "Supprimer et raccorder", action: #selector(ctxRippleDelete))
+            addItem(menu, L("Supprimer", "Delete"), action: #selector(ctxDelete))
+            addItem(menu, L("Supprimer et raccorder", "Ripple Delete"), action: #selector(ctxRippleDelete))
 
         case .header(let ctrl):
             let trackID: UUID
@@ -102,45 +102,45 @@ extension TimelineView {
             model.selectedTrackID = trackID
             let isMIDI = project.trackIndex(of: trackID).map { project.tracks[$0].isMIDI } ?? false
             if isMIDI {
-                addItem(menu, "Ouvrir/Réduire le Piano-Roll (P)", action: #selector(ctxTogglePianoRoll(_:)), represented: trackID)
-                addItem(menu, "Rendre la piste MIDI en piste Audio (WAV)", action: #selector(ctxBounceMIDIToAudio(_:)), represented: trackID)
-                addItem(menu, "Convertir la piste MIDI en Audio sur place", action: #selector(ctxReplaceMIDIWithAudio(_:)), represented: trackID)
+                addItem(menu, L("Ouvrir/Réduire le Piano-Roll (P)", "Expand/Collapse Piano Roll (P)"), action: #selector(ctxTogglePianoRoll(_:)), represented: trackID)
+                addItem(menu, L("Rendre la piste MIDI en piste Audio (WAV)", "Bounce MIDI Track to Audio Track (WAV)"), action: #selector(ctxBounceMIDIToAudio(_:)), represented: trackID)
+                addItem(menu, L("Convertir la piste MIDI en Audio sur place", "Convert MIDI Track to Audio In Place"), action: #selector(ctxReplaceMIDIWithAudio(_:)), represented: trackID)
                 menu.addItem(.separator())
             } else {
-                addItem(menu, "Afficher/Masquer les canaux L/R", action: #selector(ctxToggleStereo(_:)), represented: trackID)
+                addItem(menu, L("Afficher/Masquer les canaux L/R", "Show/Hide L/R Channels"), action: #selector(ctxToggleStereo(_:)), represented: trackID)
             }
-            addItem(menu, "Dupliquer la piste", action: #selector(ctxDuplicateTrack))
+            addItem(menu, L("Dupliquer la piste", "Duplicate Track"), action: #selector(ctxDuplicateTrack))
             if project.tracks.count > 1, let ti = project.trackIndex(of: trackID) {
                 if ti > 0 {
-                    addItem(menu, "Monter la piste (⌥↑)", action: #selector(ctxMoveTrackUp(_:)), represented: trackID)
+                    addItem(menu, L("Monter la piste (⌥↑)", "Move Track Up (⌥↑)"), action: #selector(ctxMoveTrackUp(_:)), represented: trackID)
                 }
                 if ti < project.tracks.count - 1 {
-                    addItem(menu, "Descendre la piste (⌥↓)", action: #selector(ctxMoveTrackDown(_:)), represented: trackID)
+                    addItem(menu, L("Descendre la piste (⌥↓)", "Move Track Down (⌥↓)"), action: #selector(ctxMoveTrackDown(_:)), represented: trackID)
                 }
             }
-            addItem(menu, "Ajouter une piste audio", action: #selector(ctxAddTrack))
-            addItem(menu, "Ajouter une piste MIDI", action: #selector(ctxAddMIDITrack))
+            addItem(menu, L("Ajouter une piste audio", "Add Audio Track"), action: #selector(ctxAddTrack))
+            addItem(menu, L("Ajouter une piste MIDI", "Add MIDI Track"), action: #selector(ctxAddMIDITrack))
             if project.tracks.count > 1 {
                 menu.addItem(.separator())
-                addItem(menu, "Supprimer la piste", action: #selector(ctxRemoveTrack))
+                addItem(menu, L("Supprimer la piste", "Delete Track"), action: #selector(ctxRemoveTrack))
             }
 
         case .marker(let id):
             model.selectedMarkerID = id
-            addItem(menu, "Aller au marqueur", action: #selector(ctxGoToMarker(_:)), represented: id)
-            addItem(menu, "Supprimer le marqueur", action: #selector(ctxRemoveMarker(_:)), represented: id)
+            addItem(menu, L("Aller au marqueur", "Go to Marker"), action: #selector(ctxGoToMarker(_:)), represented: id)
+            addItem(menu, L("Supprimer le marqueur", "Delete Marker"), action: #selector(ctxRemoveMarker(_:)), represented: id)
 
         default:
             if !model.clipboard.isEmpty || !model.noteClipboard.isEmpty {
-                addItem(menu, "Coller ici", action: #selector(ctxPasteAtClick(_:)), represented: clickTime)
+                addItem(menu, L("Coller ici", "Paste Here"), action: #selector(ctxPasteAtClick(_:)), represented: clickTime)
                 menu.addItem(.separator())
             }
-            addItem(menu, "Importer des fichiers audio ou MIDI…", action: #selector(ctxImportAudio))
-            addItem(menu, "Ajouter un marqueur ici", action: #selector(ctxAddMarkerAtClick(_:)), represented: clickTime)
-            addItem(menu, "Ajouter une piste audio", action: #selector(ctxAddTrack))
-            addItem(menu, "Ajouter une piste MIDI", action: #selector(ctxAddMIDITrack))
+            addItem(menu, L("Importer des fichiers audio ou MIDI…", "Import Audio or MIDI Files…"), action: #selector(ctxImportAudio))
+            addItem(menu, L("Ajouter un marqueur ici", "Add Marker Here"), action: #selector(ctxAddMarkerAtClick(_:)), represented: clickTime)
+            addItem(menu, L("Ajouter une piste audio", "Add Audio Track"), action: #selector(ctxAddTrack))
+            addItem(menu, L("Ajouter une piste MIDI", "Add MIDI Track"), action: #selector(ctxAddMIDITrack))
             menu.addItem(.separator())
-            addItem(menu, "Ajuster le zoom à la fenêtre", action: #selector(ctxZoomFit))
+            addItem(menu, L("Ajuster le zoom à la fenêtre", "Zoom to Fit Window"), action: #selector(ctxZoomFit))
         }
 
         return menu
@@ -205,7 +205,7 @@ extension TimelineView {
 
     @objc private func ctxLoopRange() {
         guard let range = model.selectionRange else { return }
-        model.store.perform("Définir la boucle") { proj in
+        model.store.perform(L("Définir la boucle", "Set Loop")) { proj in
             proj.loopRange = range
         }
     }
@@ -228,7 +228,7 @@ extension TimelineView {
         guard let raw = sender.representedObject as? String,
               let shape = FadeShape(rawValue: raw) else { return }
         let ids = model.selectedClips
-        model.store.perform("Courbe de fondu") { proj in
+        model.store.perform(L("Courbe de fondu", "Fade Curve")) { proj in
             for id in ids {
                 try? Operations.setFade(&proj, id: id, shape: shape)
             }

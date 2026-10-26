@@ -19,33 +19,33 @@ public enum SoundPreset: String, CaseIterable, Codable, Sendable, Identifiable {
 
     public var title: String {
         switch self {
-        case .gsMultitimbral: return "Banque Apple GS (Multi-pistes)"
-        case .grandPiano: return "Piano à queue (Grand Piano)"
-        case .brightPiano: return "Piano brillant (Studio)"
-        case .electricPiano: return "Piano électrique (Rhodes)"
-        case .harpsichord: return "Clavecin (Harpsichord)"
-        case .vibraphone: return "Vibraphone & Maillets"
-        case .acousticGuitar: return "Guitare classique (Nylon)"
-        case .stringsEnsemble: return "Ensemble de cordes"
-        case .choirAahs: return "Chœur symphonique"
-        case .warmPad: return "Nappe chaude (Warm Pad)"
-        case .analyticSynth: return "Synthé Analytique (DSP)"
+        case .gsMultitimbral: return L("Banque Apple GS (Multi-pistes)", "Apple GS Bank (Multitrack)")
+        case .grandPiano: return L("Piano à queue (Grand Piano)", "Grand Piano")
+        case .brightPiano: return L("Piano brillant (Studio)", "Bright Acoustic Piano")
+        case .electricPiano: return L("Piano électrique (Rhodes)", "Electric Piano (Rhodes)")
+        case .harpsichord: return L("Clavecin (Harpsichord)", "Harpsichord")
+        case .vibraphone: return L("Vibraphone & Maillets", "Vibraphone & Mallets")
+        case .acousticGuitar: return L("Guitare classique (Nylon)", "Classical Guitar (Nylon)")
+        case .stringsEnsemble: return L("Ensemble de cordes", "Strings Ensemble")
+        case .choirAahs: return L("Chœur symphonique", "Symphonic Choir")
+        case .warmPad: return L("Nappe chaude (Warm Pad)", "Warm Pad")
+        case .analyticSynth: return L("Synthé Analytique (DSP)", "Analytic Synth (DSP)")
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .gsMultitimbral: return "Piano & 128 instruments Roland GS"
-        case .grandPiano: return "Piano acoustique échantillonné (Programme 1)"
-        case .brightPiano: return "Piano droit brillant (Programme 2)"
-        case .electricPiano: return "Fender Rhodes doux (Programme 5)"
-        case .harpsichord: return "Clavecin baroque (Programme 7)"
-        case .vibraphone: return "Vibraphone métallique (Programme 12)"
-        case .acousticGuitar: return "Guitare cordes nylon (Programme 25)"
-        case .stringsEnsemble: return "Cordes orchestrales (Programme 49)"
-        case .choirAahs: return "Voix & chœurs (Programme 53)"
-        case .warmPad: return "Synthé analogique doux (Programme 90)"
-        case .analyticSynth: return "Synthèse harmonique mathématique ultra-légère"
+        case .gsMultitimbral: return L("Piano & 128 instruments Roland GS", "Piano & 128 Roland GS instruments")
+        case .grandPiano: return L("Piano acoustique échantillonné (Programme 1)", "Sampled acoustic piano (Program 1)")
+        case .brightPiano: return L("Piano droit brillant (Programme 2)", "Bright upright piano (Program 2)")
+        case .electricPiano: return L("Fender Rhodes doux (Programme 5)", "Smooth Fender Rhodes (Program 5)")
+        case .harpsichord: return L("Clavecin baroque (Programme 7)", "Baroque harpsichord (Program 7)")
+        case .vibraphone: return L("Vibraphone métallique (Programme 12)", "Metallic vibraphone (Program 12)")
+        case .acousticGuitar: return L("Guitare cordes nylon (Programme 25)", "Nylon string guitar (Program 25)")
+        case .stringsEnsemble: return L("Cordes orchestrales (Programme 49)", "Orchestral strings (Program 49)")
+        case .choirAahs: return L("Voix & chœurs (Programme 53)", "Voices & choir (Program 53)")
+        case .warmPad: return L("Synthé analogique doux (Programme 90)", "Warm analog synth (Program 90)")
+        case .analyticSynth: return L("Synthèse harmonique mathématique ultra-légère", "Ultra-lightweight harmonic DSP synthesis")
         }
     }
 

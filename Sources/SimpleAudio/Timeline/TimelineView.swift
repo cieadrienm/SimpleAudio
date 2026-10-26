@@ -193,6 +193,7 @@ final class TimelineView: NSView {
             _ = model.selectedMarkerID
             _ = model.selectionRange
             _ = model.snapping
+            _ = model.language
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.modelChanged()
@@ -473,7 +474,10 @@ final class TimelineView: NSView {
                 let visible = width * targetSPP
                 let xRange = scrollOffsetRange(at: targetSPP)
                 let targetOffset = min(max(marker.time - visible * 0.5, xRange.lowerBound), xRange.upperBound)
-                model.statusMessage = "Zoom marqueur « \(marker.name) » (1/3) : plage de 15s"
+                model.statusMessage = L(
+                    "Zoom marqueur « \(marker.name) » (1/3) : plage de 15s",
+                    "Marker zoom “\(marker.name)” (1/3): 15s window"
+                )
                 applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
 
             case 2:
@@ -497,11 +501,17 @@ final class TimelineView: NSView {
                 let targetSPP = min(max(span / width, Metrics.minSecondsPerPoint), fitSPP)
                 let xRange = scrollOffsetRange(at: targetSPP)
                 let targetOffset = min(max(zoneStart, xRange.lowerBound), xRange.upperBound)
-                model.statusMessage = "Zoom marqueur « \(marker.name) » (2/3) : zone (\(TimeFormat.shortDuration(span)))"
+                model.statusMessage = L(
+                    "Zoom marqueur « \(marker.name) » (2/3) : zone (\(TimeFormat.shortDuration(span)))",
+                    "Marker zoom “\(marker.name)” (2/3): section (\(TimeFormat.shortDuration(span)))"
+                )
                 applyZoomTarget(secondsPerPoint: targetSPP, scrollOffset: targetOffset, animate: animate)
 
             default:
-                model.statusMessage = "Zoom marqueur « \(marker.name) » (3/3) : piste entière"
+                model.statusMessage = L(
+                    "Zoom marqueur « \(marker.name) » (3/3) : piste entière",
+                    "Marker zoom “\(marker.name)” (3/3): full project"
+                )
                 applyZoomTarget(secondsPerPoint: fitSPP, scrollOffset: 0, animate: animate)
             }
             return

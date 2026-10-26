@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds build/SimpleAudio.app (with the simpleaudio-mcp helper inside); a release build is also installed into /Applications.
 # Usage: Scripts/bundle.sh [debug|release]   (default: release)
+# NOTARIZE=1 Scripts/bundle.sh   also has Apple notarize the app and staples the ticket (Developer ID, notarytool profile "notary")
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
@@ -19,6 +20,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/SimpleAudio" "$APP/Contents/MacOS/SimpleAudio"
 cp "$BIN/simpleaudio-mcp" "$APP/Contents/MacOS/simpleaudio-mcp"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+for loc in fr en; do
+    if [ -d "Resources/$loc.lproj" ]; then
+        cp -R "Resources/$loc.lproj" "$APP/Contents/Resources/$loc.lproj"
+    fi
+done
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -72,12 +78,30 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
     [ -n "$SIGN_IDENTITY" ] || SIGN_IDENTITY="$(echo "$IDENTITIES" | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -1)"
     [ -n "$SIGN_IDENTITY" ] || SIGN_IDENTITY="-"
 fi
-if ! codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/simpleaudio-mcp" "$APP" 2>/tmp/simpleaudio-codesign.log; then
+# Developer ID: hardened runtime and a secure timestamp, as notarization requires
+case "$SIGN_IDENTITY" in
+    "Developer ID Application:"*) SIGN_FLAGS="--timestamp --options runtime" ;;
+    *) SIGN_FLAGS="--timestamp=none" ;;
+esac
+if ! codesign --force $SIGN_FLAGS --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/simpleaudio-mcp" "$APP" 2>/tmp/simpleaudio-codesign.log; then
     echo "warning: signing with '$SIGN_IDENTITY' failed; falling back to ad hoc" >&2
     SIGN_IDENTITY="-"
     codesign --force --sign - "$APP/Contents/MacOS/simpleaudio-mcp" "$APP"
 fi
 echo "signed: $SIGN_IDENTITY" >&2
+
+# NOTARIZE=1: Apple checks the app and the ticket is stapled to it, so Gatekeeper opens it without a warning
+if [ "${NOTARIZE:-0}" = "1" ]; then
+    case "$SIGN_IDENTITY" in
+        "Developer ID Application:"*) ;;
+        *) echo "error: NOTARIZE=1 needs a Developer ID Application certificate" >&2; exit 1 ;;
+    esac
+    ditto -c -k --keepParent "$APP" "$APP.notarize.zip"
+    xcrun notarytool submit "$APP.notarize.zip" --keychain-profile "${NOTARY_PROFILE:-notary}" --wait
+    rm -f "$APP.notarize.zip"
+    xcrun stapler staple "$APP"
+    echo "notarized and stapled" >&2
+fi
 
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 if [ "${INSTALL:-$([ "$CONFIG" = release ] && echo 1 || echo 0)}" = 1 ]; then

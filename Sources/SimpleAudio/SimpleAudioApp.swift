@@ -30,26 +30,31 @@ struct SimpleAudioApp: App {
 
     @CommandsBuilder
     private func appCommands(model: AppModel) -> some Commands {
+        let _ = model.language
         CommandGroup(replacing: .appInfo) {
-            Button("À propos de SimpleAudio") {
+            Button(L("À propos de SimpleAudio", "About SimpleAudio")) {
                 model.showAbout = true
+            }
+            Button(L("Rechercher des mises à jour…", "Check for Updates…")) {
+                model.showUpdater = true
+                model.updater.checkForUpdates(silent: false)
             }
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("Nouveau projet") {
+            Button(L("Nouveau projet", "New Project")) {
                 model.newProject()
             }
             .keyboardShortcut("n", modifiers: [.command])
 
-            Button("Ouvrir Audio, MIDI ou Projet…") {
+            Button(L("Ouvrir Audio, MIDI ou Projet…", "Open Audio, MIDI or Project…")) {
                 model.openDocumentPanel()
             }
             .keyboardShortcut("o", modifiers: [.command])
 
-            Menu("Ouvrir l’élément récent") {
+            Menu(L("Ouvrir l’élément récent", "Open Recent")) {
                 if model.recentFiles.isEmpty {
-                    Text("Aucun élément récent")
+                    Text(L("Aucun élément récent", "No Recent Items"))
                 } else {
                     ForEach(model.recentFiles, id: \.path) { url in
                         Button(url.lastPathComponent) {
@@ -57,68 +62,68 @@ struct SimpleAudioApp: App {
                         }
                     }
                     Divider()
-                    Button("Effacer le menu") {
+                    Button(L("Effacer le menu", "Clear Menu")) {
                         model.clearRecentFiles()
                     }
                 }
             }
 
-            Button("Importer des fichiers Audio / MIDI…") {
+            Button(L("Importer des fichiers Audio / MIDI…", "Import Audio / MIDI Files…")) {
                 model.importAudioPanel()
             }
             .keyboardShortcut("i", modifiers: [.command])
 
-            Button("Charger une banque SoundFont (.sf2 / .dls)…") {
+            Button(L("Charger une banque SoundFont (.sf2 / .dls)…", "Load SoundFont Bank (.sf2 / .dls)…")) {
                 model.chooseSoundfontPanel()
             }
 
             Divider()
 
-            Button("Charger la démo multipiste Audio") {
+            Button(L("Charger la démo multipiste Audio", "Load Multitrack Audio Demo")) {
                 model.loadDemoProject()
             }
 
-            Button("Charger la démo hybride Audio + MIDI") {
+            Button(L("Charger la démo hybride Audio + MIDI", "Load Hybrid Audio + MIDI Demo")) {
                 model.loadHybridDemoProject()
             }
 
-            Button("Charger la démo MIDI (Piano-Roll)") {
+            Button(L("Charger la démo MIDI (Piano-Roll)", "Load MIDI Demo (Piano Roll)")) {
                 model.loadMIDIDemoProject()
             }
 
             Divider()
 
-            Button("Enregistrer") {
+            Button(L("Enregistrer", "Save")) {
                 model.saveDocument()
             }
             .keyboardShortcut("s", modifiers: [.command])
 
-            Button("Enregistrer sous…") {
+            Button(L("Enregistrer sous…", "Save As…")) {
                 model.saveDocumentAs()
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
 
             Divider()
 
-            Button("Exporter Audio / MIDI…") {
+            Button(L("Exporter Audio / MIDI…", "Export Audio / MIDI…")) {
                 model.showExportSheet = true
             }
             .keyboardShortcut("e", modifiers: [.command])
 
-            Button("Exporter en fichier MIDI (.mid)…") {
+            Button(L("Exporter en fichier MIDI (.mid)…", "Export as MIDI File (.mid)…")) {
                 model.exportMIDIFilePanel()
             }
             .disabled(!model.store.project.hasMIDITracks)
         }
 
         CommandGroup(replacing: .undoRedo) {
-            Button(model.store.undoLabel.map { "Annuler \($0)" } ?? "Annuler") {
+            Button(model.store.undoLabel.map { L("Annuler \($0)", "Undo \($0)") } ?? L("Annuler", "Undo")) {
                 model.store.undo()
             }
             .keyboardShortcut("z", modifiers: [.command])
             .disabled(!model.store.canUndo)
 
-            Button(model.store.redoLabel.map { "Rétablir \($0)" } ?? "Rétablir") {
+            Button(model.store.redoLabel.map { L("Rétablir \($0)", "Redo \($0)") } ?? L("Rétablir", "Redo")) {
                 model.store.redo()
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
@@ -126,35 +131,35 @@ struct SimpleAudioApp: App {
         }
 
         CommandGroup(replacing: .pasteboard) {
-            Button("Couper") {
+            Button(L("Couper", "Cut")) {
                 model.cutSelection()
             }
             .keyboardShortcut("x", modifiers: [.command])
 
-            Button("Copier") {
+            Button(L("Copier", "Copy")) {
                 model.copySelection()
             }
             .keyboardShortcut("c", modifiers: [.command])
 
-            Button("Coller") {
+            Button(L("Coller", "Paste")) {
                 model.pasteAtPlayhead()
             }
             .keyboardShortcut("v", modifiers: [.command])
 
-            Button("Dupliquer") {
+            Button(L("Dupliquer", "Duplicate")) {
                 model.duplicateSelectedClips()
             }
             .keyboardShortcut("d", modifiers: [.command])
 
             Divider()
 
-            Button("Rogner sur la plage (Crop)") {
+            Button(L("Rogner sur la plage (Crop)", "Crop to Range")) {
                 model.cropToSelection()
             }
             .keyboardShortcut("t", modifiers: [.command])
             .disabled(model.selectionRange == nil)
 
-            Button("Silencer la plage") {
+            Button(L("Silencer la plage", "Silence Range")) {
                 model.silenceSelection()
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
@@ -162,43 +167,43 @@ struct SimpleAudioApp: App {
 
             Divider()
 
-            Button("Supprimer") {
+            Button(L("Supprimer", "Delete")) {
                 model.deleteSelection(ripple: false)
             }
 
-            Button("Supprimer et raccorder") {
+            Button(L("Supprimer et raccorder", "Ripple Delete")) {
                 model.deleteSelection(ripple: true)
             }
 
             Divider()
 
-            Button("Tout sélectionner") {
+            Button(L("Tout sélectionner", "Select All")) {
                 model.selectAll()
             }
             .keyboardShortcut("a", modifiers: [.command])
         }
 
-        CommandMenu("Audio") {
-            Button("Scinder à la tête de lecture") {
+        CommandMenu(L("Audio", "Audio")) {
+            Button(L("Scinder à la tête de lecture", "Split at Playhead")) {
                 model.splitAtPlayhead()
             }
             .keyboardShortcut("k", modifiers: [.command])
 
             Divider()
 
-            Button("Fondu d'entrée (0.5 s)") {
+            Button(L("Fondu d'entrée (0.5 s)", "Fade In (0.5 s)")) {
                 model.applyFadeIn(duration: 0.5)
             }
 
-            Button("Fondu de sortie (0.5 s)") {
+            Button(L("Fondu de sortie (0.5 s)", "Fade Out (0.5 s)")) {
                 model.applyFadeOut(duration: 0.5)
             }
 
-            Menu("Courbe de fondu") {
+            Menu(L("Courbe de fondu", "Fade Curve")) {
                 ForEach(FadeShape.allCases, id: \.self) { shape in
                     Button(shape.label) {
                         let ids = model.selectedClips
-                        model.store.perform("Courbe de fondu") { proj in
+                        model.store.perform(L("Courbe de fondu", "Fade Curve")) { proj in
                             for id in ids {
                                 try? Operations.setFade(&proj, id: id, shape: shape)
                             }
@@ -209,68 +214,68 @@ struct SimpleAudioApp: App {
 
             Divider()
 
-            Button("Normaliser à -0.1 dBFS") {
+            Button(L("Normaliser à -0.1 dBFS", "Normalize to -0.1 dBFS")) {
                 model.normalizeSelectedClips(targetDB: -0.1)
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
 
-            Button("Supprimer les silences aux extrémités") {
+            Button(L("Supprimer les silences aux extrémités", "Strip Silence at Edges")) {
                 model.stripSilenceOnSelected()
             }
 
-            Button("Inverser le sens (Reverse)") {
+            Button(L("Inverser le sens (Reverse)", "Reverse Clip")) {
                 model.reverseSelectedClips()
             }
             .keyboardShortcut("r", modifiers: [.command])
         }
 
-        CommandMenu("Piste & MIDI") {
-            Button("Nouvelle piste audio") {
+        CommandMenu(L("Piste & MIDI", "Track & MIDI")) {
+            Button(L("Nouvelle piste audio", "New Audio Track")) {
                 model.addTrack()
             }
             .keyboardShortcut("n", modifiers: [.command, .option])
 
-            Button("Nouvelle piste MIDI (Piano-Roll)") {
+            Button(L("Nouvelle piste MIDI (Piano-Roll)", "New MIDI Track (Piano Roll)")) {
                 model.addMIDITrack()
             }
             .keyboardShortcut("n", modifiers: [.command, .control])
 
-            Button("Ouvrir / Réduire le Piano-Roll  P") {
+            Button(L("Ouvrir / Réduire le Piano-Roll  P", "Expand / Collapse Piano Roll  P")) {
                 model.toggleSelectedTrackPianoRoll()
             }
 
             Divider()
 
-            Button("Quantifier les notes (1/16)  Q") {
+            Button(L("Quantifier les notes (1/16)  Q", "Quantize Notes (1/16)  Q")) {
                 model.quantizeSelection(subdivisionBeats: 0.25)
             }
 
-            Button("Transposer +1 demi-ton  ↑") {
+            Button(L("Transposer +1 demi-ton  ↑", "Transpose +1 Semitone  ↑")) {
                 model.transposeSelection(semitones: 1)
             }
 
-            Button("Transposer -1 demi-ton  ↓") {
+            Button(L("Transposer -1 demi-ton  ↓", "Transpose -1 Semitone  ↓")) {
                 model.transposeSelection(semitones: -1)
             }
 
-            Button("Transposer +1 octave  ⇧↑") {
+            Button(L("Transposer +1 octave  ⇧↑", "Transpose +1 Octave  ⇧↑")) {
                 model.transposeSelection(semitones: 12)
             }
 
-            Button("Transposer -1 octave  ⇧↓") {
+            Button(L("Transposer -1 octave  ⇧↓", "Transpose -1 Octave  ⇧↓")) {
                 model.transposeSelection(semitones: -12)
             }
 
             Divider()
 
-            Button("Rendre la piste MIDI en piste Audio (WAV)") {
+            Button(L("Rendre la piste MIDI en piste Audio (WAV)", "Bounce MIDI Track to Audio Track (WAV)")) {
                 if let id = model.selectedTrackID {
                     model.bounceMIDITrackToAudio(id, replaceMIDITrack: false)
                 }
             }
             .disabled(model.activeTrack?.isMIDI != true)
 
-            Button("Convertir la piste MIDI en piste Audio") {
+            Button(L("Convertir la piste MIDI en piste Audio", "Convert MIDI Track to Audio Track")) {
                 if let id = model.selectedTrackID {
                     model.bounceMIDITrackToAudio(id, replaceMIDITrack: true)
                 }
@@ -279,118 +284,124 @@ struct SimpleAudioApp: App {
 
             Divider()
 
-            Button("Monter la piste  ⌥↑") {
+            Button(L("Monter la piste  ⌥↑", "Move Track Up  ⌥↑")) {
                 model.moveSelectedTrackUp()
             }
             .disabled(model.store.project.tracks.count <= 1)
 
-            Button("Descendre la piste  ⌥↓") {
+            Button(L("Descendre la piste  ⌥↓", "Move Track Down  ⌥↓")) {
                 model.moveSelectedTrackDown()
             }
             .disabled(model.store.project.tracks.count <= 1)
 
-            Button("Dupliquer la piste") {
+            Button(L("Dupliquer la piste", "Duplicate Track")) {
                 model.duplicateSelectedTrack()
             }
 
-            Button("Supprimer la piste") {
+            Button(L("Supprimer la piste", "Delete Track")) {
                 model.removeSelectedTrack()
             }
             .disabled(model.store.project.tracks.count <= 1)
 
             Divider()
 
-            Button("Muet sur la piste active") {
+            Button(L("Muet sur la piste active", "Mute Active Track")) {
                 if let id = model.selectedTrackID {
                     model.toggleTrackMute(id)
                 }
             }
 
-            Button("Solo sur la piste active") {
+            Button(L("Solo sur la piste active", "Solo Active Track")) {
                 if let id = model.selectedTrackID {
                     model.toggleTrackSolo(id)
                 }
             }
 
-            Button("Afficher/Masquer les canaux L/R") {
+            Button(L("Afficher/Masquer les canaux L/R", "Show/Hide L/R Channels")) {
                 if let id = model.selectedTrackID {
                     model.toggleTrackStereoSplit(id)
                 }
             }
         }
 
-        CommandMenu("Transport") {
-            Button(model.transportPlaying ? "Pause" : "Lecture") {
+        CommandMenu(L("Transport", "Transport")) {
+            Button(model.transportPlaying ? L("Pause", "Pause") : L("Lecture", "Play")) {
                 model.togglePlay()
             }
 
-            Button("Retour au début") {
+            Button(L("Retour au début", "Rewind to Start")) {
                 model.seek(to: 0)
             }
 
-            Button("Lecture en boucle") {
+            Button(L("Lecture en boucle", "Loop Playback")) {
                 model.toggleLoop()
             }
             .keyboardShortcut("l", modifiers: [.command])
 
             Divider()
 
-            Button("Ajouter un marqueur") {
+            Button(L("Ajouter un marqueur", "Add Marker")) {
                 model.addMarkerAtPlayhead()
             }
         }
 
         CommandGroup(after: .toolbar) {
-            Button(model.showSidebar ? "Masquer la barre latérale" : "Afficher la barre latérale") {
+            Button(model.showSidebar ? L("Masquer la barre latérale", "Hide Sidebar") : L("Afficher la barre latérale", "Show Sidebar")) {
                 model.showSidebar.toggle()
             }
             .keyboardShortcut("s", modifiers: [.command, .option])
 
-            Button(model.showInspector ? "Masquer l’inspecteur" : "Afficher l’inspecteur") {
+            Button(model.showInspector ? L("Masquer l’inspecteur", "Hide Inspector") : L("Afficher l’inspecteur", "Show Inspector")) {
                 model.showInspector.toggle()
             }
             .keyboardShortcut("i", modifiers: [.command, .option])
 
             Divider()
 
-            Button("Basculer le zoom (Tout voir ↔ Curseur)  Z") {
+            Button(L("Basculer le zoom (Tout voir ↔ Curseur)  Z", "Toggle Zoom (Fit All ↔ Playhead)  Z")) {
                 model.perform(.toggleZoom)
             }
             .keyboardShortcut("0", modifiers: [.command])
 
-            Button("Ajuster à la fenêtre  F") {
+            Button(L("Ajuster à la fenêtre  F", "Zoom to Fit  F")) {
                 model.perform(.zoomToFit)
             }
 
-            Button("Zoom avant") {
+            Button(L("Zoom avant", "Zoom In")) {
                 model.perform(.zoomIn)
             }
             .keyboardShortcut("=", modifiers: [.command])
 
-            Button("Zoom arrière") {
+            Button(L("Zoom arrière", "Zoom Out")) {
                 model.perform(.zoomOut)
             }
             .keyboardShortcut("-", modifiers: [.command])
 
             Divider()
 
-            Button((model.snapping ? "✓ " : "") + "Magnétisme  N") {
+            Button((model.snapping ? "✓ " : "") + L("Magnétisme  N", "Snapping  N")) {
                 model.perform(.toggleSnapping)
             }
         }
 
         CommandGroup(replacing: .help) {
-            Button("Aide SimpleAudio") {
+            Button(L("Aide SimpleAudio", "SimpleAudio Help")) {
                 model.showHelp = true
             }
             .keyboardShortcut("?", modifiers: [.command])
 
             Divider()
 
-            Button("Raccourcis clavier") {
+            Button(L("Raccourcis clavier", "Keyboard Shortcuts")) {
                 model.showShortcuts = true
             }
             .keyboardShortcut("/", modifiers: [.command])
+
+            Divider()
+
+            Button(L("Site web Simple Apps (adrien-m.net/software)", "Simple Apps Website (adrien-m.net/software)")) {
+                NSWorkspace.shared.open(URL(string: "https://adrien-m.net/software")!)
+            }
         }
     }
 }
@@ -405,6 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         AppVersion.runIfRequested()
         let args = Array(CommandLine.arguments.dropFirst())
+        let langIdx = args.firstIndex(of: "--lang")
 
         if args.contains("--self-test") {
             SelfTest.runAndExit()
@@ -414,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let outPath = (snapIdx + 1 < args.count) ? args[snapIdx + 1] : "/tmp/simpleaudio-snapshot.png"
             let positional = args.enumerated().compactMap { i, a -> String? in
                 if i == snapIdx || i == snapIdx + 1 || a.hasPrefix("-") { return nil }
+                if let langIdx, (i == langIdx || i == langIdx + 1) { return nil }
                 return a
             }.first
             Snapshot.runCLISnapshot(outputPath: outPath, inputPath: positional)
@@ -439,7 +452,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         restartNetworkServers()
         observeStateForSSE()
 
-        let args = Array(CommandLine.arguments.dropFirst()).filter { !$0.hasPrefix("-") }
+        let rawArgs = Array(CommandLine.arguments.dropFirst())
+        let langIdx = rawArgs.firstIndex(of: "--lang")
+        let args = rawArgs.enumerated().compactMap { i, a -> String? in
+            if a.hasPrefix("-") { return nil }
+            if let langIdx, (i == langIdx || i == langIdx + 1) { return nil }
+            return a
+        }
         if let firstPath = args.first {
             let url = URL(fileURLWithPath: (firstPath as NSString).expandingTildeInPath)
             if FileManager.default.fileExists(atPath: url.path) {

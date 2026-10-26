@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var dropTargeted = false
 
     var body: some View {
+        let _ = model.language
         VStack(spacing: 0) {
             TransportView(
                 model: model,
@@ -28,6 +29,7 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 if model.showSidebar {
                     SidebarView(model: model)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
                 Group {
@@ -50,9 +52,13 @@ struct ContentView: View {
 
                 if model.showInspector {
                     InspectorView(model: model)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .animation(.spring(duration: 0.22, bounce: 0.0), value: model.showSidebar)
+            .animation(.spring(duration: 0.22, bounce: 0.0), value: model.showInspector)
 
             StatusBar(model: model)
         }
@@ -80,10 +86,21 @@ struct ContentView: View {
                 openHelp: {
                     DispatchQueue.main.async { model.showHelp = true }
                 },
+                openUpdates: {
+                    DispatchQueue.main.async {
+                        model.showUpdater = true
+                        model.updater.checkForUpdates(silent: false)
+                    }
+                },
                 close: {
                     model.showAbout = false
                 }
             )
+        }
+        .sheet(isPresented: $model.showUpdater) {
+            UpdateSheet(updater: model.updater) {
+                model.showUpdater = false
+            }
         }
     }
 

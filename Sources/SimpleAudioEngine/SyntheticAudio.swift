@@ -107,13 +107,13 @@ public enum SyntheticAudio {
         }
 
         let track1 = AudioTrack(
-            name: "Voix",
+            name: L("Voix", "Vocals"),
             colorIndex: 0,
             gainDB: 0,
             pan: 0,
             clips: [
                 AudioClip(
-                    name: "voix · 1",
+                    name: L("voix · 1", "vocals · 1"),
                     path: "voix.wav",
                     offset: 0.0,
                     sourceStart: 0.15,
@@ -125,7 +125,7 @@ public enum SyntheticAudio {
                     fadeShape: .cosine
                 ),
                 AudioClip(
-                    name: "voix · 2",
+                    name: L("voix · 2", "vocals · 2"),
                     path: "voix.wav",
                     offset: 3.60,
                     sourceStart: 3.55,
@@ -140,14 +140,14 @@ public enum SyntheticAudio {
         )
 
         let track2 = AudioTrack(
-            name: "Nappe",
+            name: L("Nappe", "Pad"),
             colorIndex: 1,
             gainDB: -4.5,
             pan: -0.15,
             stereoSplit: true,
             clips: [
                 AudioClip(
-                    name: "nappe",
+                    name: L("nappe", "pad"),
                     path: "nappe.wav",
                     offset: 0.0,
                     sourceStart: 0.0,
@@ -162,13 +162,13 @@ public enum SyntheticAudio {
         )
 
         let track3 = AudioTrack(
-            name: "Pulsation",
+            name: L("Pulsation", "Pulse"),
             colorIndex: 2,
             gainDB: -3.0,
             pan: 0.15,
             clips: [
                 AudioClip(
-                    name: "pulsation",
+                    name: L("pulsation", "pulse"),
                     path: "pulsation.wav",
                     offset: 1.0,
                     sourceStart: 0.0,
@@ -188,8 +188,8 @@ public enum SyntheticAudio {
             tracks: [track1, track2, track3],
             markers: [
                 AudioMarker(name: "Intro", time: 0.0, colorIndex: 0),
-                AudioMarker(name: "Entrée rythme", time: 1.0, colorIndex: 2),
-                AudioMarker(name: "Reprise voix", time: 3.60, colorIndex: 1),
+                AudioMarker(name: L("Entrée rythme", "Rhythm In"), time: 1.0, colorIndex: 2),
+                AudioMarker(name: L("Reprise voix", "Vocal Return"), time: 3.60, colorIndex: 1),
             ]
         )
 
@@ -344,7 +344,7 @@ public enum SyntheticAudio {
                 notes: pianoNotes
             ),
             AudioTrack(
-                name: "Basse Électrique",
+                name: L("Basse Électrique", "Electric Bass"),
                 colorIndex: 1,
                 gainDB: -1.0,
                 pan: 0.0,
@@ -355,7 +355,7 @@ public enum SyntheticAudio {
                 notes: bassNotes
             ),
             AudioTrack(
-                name: "Ensemble de Cordes",
+                name: L("Ensemble de Cordes", "String Ensemble"),
                 colorIndex: 4,
                 gainDB: -2.5,
                 pan: 0.22,
@@ -366,7 +366,7 @@ public enum SyntheticAudio {
                 notes: stringNotes
             ),
             AudioTrack(
-                name: "Batterie GM",
+                name: L("Batterie GM", "GM Drums"),
                 colorIndex: 2,
                 gainDB: -1.5,
                 pan: 0.0,
@@ -379,7 +379,7 @@ public enum SyntheticAudio {
         ]
 
         return AudioProject(
-            title: "Démo MIDI — Horizon",
+            title: L("Démo MIDI — Horizon", "MIDI Demo — Horizon"),
             bpm: bpm,
             timeSignatureNumerator: 4,
             timeSignatureDenominator: 4,
@@ -387,7 +387,7 @@ public enum SyntheticAudio {
             tracks: tracks,
             markers: [
                 AudioMarker(name: "Intro", time: 0.0, colorIndex: 0),
-                AudioMarker(name: "Thème A", time: 4.0, colorIndex: 1),
+                AudioMarker(name: L("Thème A", "Theme A"), time: 4.0, colorIndex: 1),
                 AudioMarker(name: "Variation", time: 8.0, colorIndex: 4),
                 AudioMarker(name: "Coda", time: 12.0, colorIndex: 2),
             ]
@@ -408,7 +408,7 @@ public enum SyntheticAudio {
         let midiProj = makeMIDIDemoProject()
 
         var hybrid = audioProj
-        hybrid.title = "Démo Hybride Audio + MIDI"
+        hybrid.title = L("Démo Hybride Audio + MIDI", "Hybrid Audio + MIDI Demo")
         hybrid.bpm = 120.0
         var pianoTrack = midiProj.tracks[0]
         pianoTrack.notes = pianoTrack.notes.filter { $0.start < 8.0 }

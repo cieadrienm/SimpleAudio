@@ -77,9 +77,20 @@ final class AppModel {
     var showAbout = false
     var showHelp = false
     var showShortcuts = false
+    var showUpdater = false
+    var updater = SimpleUpdater()
     var errorMessage: String?
     var statusFlash: String?
-    var statusMessage: String = "Prêt"
+    var statusMessage: String = L("Prêt", "Ready")
+    var language: AppLanguage = Localization.current {
+        didSet {
+            Localization.current = language
+            if statusFlash == nil {
+                statusMessage = L("Prêt", "Ready")
+            }
+            timelineView?.needsDisplay = true
+        }
+    }
     var recentFiles: [URL] = []
 
     private static let recentFilesDefaultsKey = "simpleaudio.recentFiles"
@@ -191,7 +202,7 @@ final class AppModel {
 
     var documentTitle: String {
         guard let url = store.url else { return "SimpleAudio" }
-        let suffix = store.isDirty ? " — modifié" : ""
+        let suffix = store.isDirty ? L(" — modifié", " — edited") : ""
         return url.lastPathComponent + suffix
     }
 
@@ -238,7 +249,7 @@ final class AppModel {
         guard confirmDiscardIfDirty() else { return }
         engine.stop()
         var p = AudioProject()
-        let tID = p.addTrack(name: "Piste 1")
+        let tID = p.addTrack(name: L("Piste 1", "Track 1"))
         store.replace(project: p, url: nil, isProjectFile: true)
         selectedClips.removeAll()
         selectedNotes.removeAll()
@@ -255,7 +266,10 @@ final class AppModel {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.message = "Ouvrir un fichier audio, MIDI (.mid) ou un projet SimpleAudio"
+        panel.message = L(
+            "Ouvrir un fichier audio, MIDI (.mid) ou un projet SimpleAudio",
+            "Open an audio file, MIDI file (.mid), or SimpleAudio project"
+        )
         if panel.runModal() == .OK, !panel.urls.isEmpty {
             openURLs(panel.urls)
         }
@@ -266,7 +280,10 @@ final class AppModel {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.message = "Importer des fichiers audio ou MIDI (.mid) dans le projet"
+        panel.message = L(
+            "Importer des fichiers audio ou MIDI (.mid) dans le projet",
+            "Import audio or MIDI (.mid) files into the project"
+        )
         if panel.runModal() == .OK, !panel.urls.isEmpty {
             for url in panel.urls {
                 let ext = url.pathExtension.lowercased()
@@ -336,7 +353,10 @@ final class AppModel {
                 timelineView?.fit()
                 recordRecentFile(standardized)
             } catch {
-                errorMessage = "Impossible d'ouvrir \(standardized.lastPathComponent) : \(error.localizedDescription)"
+                errorMessage = L(
+                    "Impossible d'ouvrir \(standardized.lastPathComponent) : \(error.localizedDescription)",
+                    "Cannot open \(standardized.lastPathComponent): \(error.localizedDescription)"
+                )
             }
             return
         }
@@ -366,16 +386,22 @@ final class AppModel {
                 engine.seek(to: 0)
                 timelineView?.fit()
                 recordRecentFile(standardized)
-                flash("MIDI ouvert · \(decoded.noteCount) notes")
+                flash(L("MIDI ouvert · \(decoded.noteCount) notes", "MIDI opened · \(decoded.noteCount) notes"))
             } catch {
-                errorMessage = "Impossible d'ouvrir le fichier MIDI \(standardized.lastPathComponent) : \(error.localizedDescription)"
+                errorMessage = L(
+                    "Impossible d'ouvrir le fichier MIDI \(standardized.lastPathComponent) : \(error.localizedDescription)",
+                    "Cannot open MIDI file \(standardized.lastPathComponent): \(error.localizedDescription)"
+                )
             }
             return
         }
 
         // Open an audio file directly as a single-track project ready to edit
         guard let wave = waveforms.preloadSync(standardized), wave.duration > 0 else {
-            errorMessage = "Impossible de décoder le fichier audio \(standardized.lastPathComponent)"
+            errorMessage = L(
+                "Impossible de décoder le fichier audio \(standardized.lastPathComponent)",
+                "Cannot decode audio file \(standardized.lastPathComponent)"
+            )
             return
         }
         let clip = AudioClip(
@@ -420,7 +446,7 @@ final class AppModel {
         )
         var addedTrackIDs: [UUID] = []
         let shift = max(0, offset)
-        store.perform("Importer MIDI \(standardized.deletingPathExtension().lastPathComponent)") { proj in
+        store.perform(L("Importer MIDI \(standardized.deletingPathExtension().lastPathComponent)", "Import MIDI \(standardized.deletingPathExtension().lastPathComponent)")) { proj in
             if proj.tracks.isEmpty || (proj.tracks.count == 1 && proj.tracks[0].clips.isEmpty && proj.tracks[0].notes.isEmpty) {
                 proj.bpm = decoded.bpm
                 proj.timeSignatureNumerator = decoded.timeSignatureNumerator
@@ -471,7 +497,7 @@ final class AppModel {
             duration: wave.duration,
             sourceDuration: wave.duration
         )
-        store.perform("Importer \(clip.name)") { proj in
+        store.perform(L("Importer \(clip.name)", "Import \(clip.name)")) { proj in
             let targetTrackID: UUID
             if let idx = toTrackIndex, proj.tracks.indices.contains(idx) {
                 targetTrackID = proj.tracks[idx].id
@@ -502,7 +528,7 @@ final class AppModel {
                     let data = MIDIFileCodec.encode(project)
                     try data.write(to: url, options: .atomic)
                     store.markSaved(at: url, isProjectFile: false)
-                    flash("MIDI enregistré")
+                    flash(L("MIDI enregistré", "MIDI saved"))
                     return
                 } catch {
                     // Fall through to Save As
@@ -515,7 +541,7 @@ final class AppModel {
                     waveforms.invalidate(url)
                     _ = waveforms.preloadSync(url)
                     store.markSaved(at: url, isProjectFile: false)
-                    flash("enregistré")
+                    flash(L("enregistré", "saved"))
                     return
                 } catch {
                     // Fall through to Save As project if in-place overwrite fails
@@ -531,14 +557,20 @@ final class AppModel {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "mid") ?? .data]
         panel.nameFieldStringValue = "\(documentName).mid"
-        panel.message = "Exporter les pistes MIDI en fichier MIDI Standard (.mid)"
+        panel.message = L(
+            "Exporter les pistes MIDI en fichier MIDI Standard (.mid)",
+            "Export MIDI tracks as Standard MIDI File (.mid)"
+        )
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 let data = MIDIFileCodec.encode(project)
                 try data.write(to: url, options: .atomic)
-                flash("exporté en .mid")
+                flash(L("exporté en .mid", "exported as .mid"))
             } catch {
-                errorMessage = "Impossible d'exporter le MIDI : \(error.localizedDescription)"
+                errorMessage = L(
+                    "Impossible d'exporter le MIDI : \(error.localizedDescription)",
+                    "Cannot export MIDI: \(error.localizedDescription)"
+                )
             }
         }
     }
@@ -548,7 +580,10 @@ final class AppModel {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "Choisir une banque de sons SoundFont (.sf2 ou .dls)"
+        panel.message = L(
+            "Choisir une banque de sons SoundFont (.sf2 ou .dls)",
+            "Choose a SoundFont soundbank (.sf2 or .dls)"
+        )
         if panel.runModal() == .OK, let url = panel.url {
             _ = loadSoundfont(url: url)
         }
@@ -558,33 +593,36 @@ final class AppModel {
     func loadSoundfont(url: URL) -> Bool {
         let ok = engine.loadSoundfont(url)
         if ok {
-            store.perform("Banque SoundFont") { $0.soundfontPath = url.path }
+            store.perform(L("Banque SoundFont", "SoundFont Bank")) { $0.soundfontPath = url.path }
             flash("SoundFont : \(url.deletingPathExtension().lastPathComponent)")
         } else {
-            errorMessage = "Banque SoundFont invalide : \(url.lastPathComponent)"
+            errorMessage = L(
+                "Banque SoundFont invalide : \(url.lastPathComponent)",
+                "Invalid SoundFont bank: \(url.lastPathComponent)"
+            )
         }
         return ok
     }
 
     func clearSoundfont() {
         _ = engine.loadSoundfont(nil)
-        store.perform("Banque GM par défaut") { $0.soundfontPath = nil }
-        flash("Banque : \(engine.activePreset.title)")
+        store.perform(L("Banque GM par défaut", "Default GM Bank")) { $0.soundfontPath = nil }
+        flash(L("Banque : \(engine.activePreset.title)", "Bank: \(engine.activePreset.title)"))
     }
 
     func selectSoundPreset(_ preset: SoundPreset) {
         _ = engine.loadSoundfont(nil)
         engine.setPreset(preset)
         if store.project.soundfontPath != nil {
-            store.perform("Banque de sons") { $0.soundfontPath = nil }
+            store.perform(L("Banque de sons", "Sound Bank")) { $0.soundfontPath = nil }
         }
-        flash("Son : \(preset.title)")
+        flash(L("Son : \(preset.title)", "Sound: \(preset.title)"))
     }
 
     func saveAs() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "simpleaudio") ?? .json]
-        panel.nameFieldStringValue = (store.url?.deletingPathExtension().lastPathComponent ?? "Projet") + ".simpleaudio"
+        panel.nameFieldStringValue = (store.url?.deletingPathExtension().lastPathComponent ?? L("Projet", "Project")) + ".simpleaudio"
         if panel.runModal() == .OK, let url = panel.url {
             saveProject(to: url)
         }
@@ -604,27 +642,36 @@ final class AppModel {
             try data.write(to: url, options: .atomic)
             store.markSaved(at: url, isProjectFile: true)
             recordRecentFile(url)
-            flash("enregistré")
+            flash(L("enregistré", "saved"))
         } catch {
-            errorMessage = "Impossible d'enregistrer : \(error.localizedDescription)"
+            errorMessage = L(
+                "Impossible d'enregistrer : \(error.localizedDescription)",
+                "Cannot save: \(error.localizedDescription)"
+            )
         }
     }
 
     func revert() {
         guard let url = store.url else { return }
         open(url)
-        flash("rétabli")
+        flash(L("rétabli", "reverted"))
     }
 
     func confirmDiscardIfDirty() -> Bool {
         let isAutomated = CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--snapshot")
         guard store.isDirty, !isAutomated else { return true }
         let alert = NSAlert()
-        alert.messageText = "Enregistrer les modifications apportées à « \(documentName) » ?"
-        alert.informativeText = "Les modifications non enregistrées seront perdues."
-        alert.addButton(withTitle: "Enregistrer")
-        alert.addButton(withTitle: "Ne pas enregistrer")
-        alert.addButton(withTitle: "Annuler")
+        alert.messageText = L(
+            "Enregistrer les modifications apportées à « \(documentName) » ?",
+            "Save changes to “\(documentName)”?"
+        )
+        alert.informativeText = L(
+            "Les modifications non enregistrées seront perdues.",
+            "Unsaved changes will be lost."
+        )
+        alert.addButton(withTitle: L("Enregistrer", "Save"))
+        alert.addButton(withTitle: L("Ne pas enregistrer", "Don't Save"))
+        alert.addButton(withTitle: L("Annuler", "Cancel"))
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             save()
@@ -670,17 +717,17 @@ final class AppModel {
             engine.stop()
         case .toggleLoop:
             if project.loopRange != nil {
-                store.perform("Désactiver la boucle") { $0.loopRange = nil }
+                store.perform(L("Désactiver la boucle", "Disable Loop")) { $0.loopRange = nil }
             } else if let range = selectionRange, range.upperBound > range.lowerBound + 0.02 {
-                store.perform("Boucle sur la plage") { $0.loopRange = range }
+                store.perform(L("Boucle sur la plage", "Loop Range")) { $0.loopRange = range }
             } else if let clip = selectedClipObjects.first {
-                store.perform("Boucle sur le clip") { $0.loopRange = clip.offset...clip.end }
+                store.perform(L("Boucle sur le clip", "Loop Clip")) { $0.loopRange = clip.offset...clip.end }
             } else if !selectedNoteObjects.isEmpty {
                 let lo = selectedNoteObjects.map(\.start).min() ?? 0
                 let hi = selectedNoteObjects.map(\.end).max() ?? 1
-                store.perform("Boucle sur les notes") { $0.loopRange = lo...max(lo + 0.1, hi) }
+                store.perform(L("Boucle sur les notes", "Loop Notes")) { $0.loopRange = lo...max(lo + 0.1, hi) }
             } else if totalDuration > 0.05 {
-                store.perform("Boucle") { $0.loopRange = 0...totalDuration }
+                store.perform(L("Boucle", "Loop")) { $0.loopRange = 0...totalDuration }
             }
         case .stepBackward:
             engine.seek(to: max(0, playhead - 0.05))
@@ -688,7 +735,7 @@ final class AppModel {
             engine.seek(to: min(totalDuration, playhead + 0.05))
         case .split:
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.01 {
-                store.perform("Couper aux bornes") {
+                store.perform(L("Couper aux bornes", "Split at Range Bounds")) {
                     _ = $0.splitAt(time: range.lowerBound, trackIDs: targetTrackIDs)
                     _ = $0.splitAt(time: range.upperBound, trackIDs: targetTrackIDs)
                     _ = $0.splitNotes(at: range.lowerBound, trackIDs: targetTrackIDs)
@@ -698,14 +745,14 @@ final class AppModel {
                 let t = playhead
                 var createdClips: [UUID] = []
                 var createdNotes: [UUID] = []
-                store.perform("Couper") {
+                store.perform(L("Couper", "Split")) {
                     createdClips = $0.splitAt(time: t, clipIDs: selectedClips.isEmpty ? nil : selectedClips, trackIDs: targetTrackIDs)
                     createdNotes = $0.splitNotes(at: t, noteIDs: selectedNotes.isEmpty ? nil : selectedNotes, trackIDs: targetTrackIDs)
                 }
                 if !createdClips.isEmpty { selectedClips = Set(createdClips) }
                 if !createdNotes.isEmpty { selectedNotes = Set(createdNotes) }
                 if createdClips.isEmpty && createdNotes.isEmpty {
-                    flash("rien sous la tête de lecture")
+                    flash(L("rien sous la tête de lecture", "nothing under playhead"))
                 }
             }
         case .duplicateSelection:
@@ -715,7 +762,7 @@ final class AppModel {
                 guard !slices.isEmpty || !noteSlices.isEmpty else { return }
                 var pastedClips: [UUID] = []
                 var pastedNotes: [UUID] = []
-                store.perform("Dupliquer la plage") {
+                store.perform(L("Dupliquer la plage", "Duplicate Range")) {
                     if !slices.isEmpty {
                         pastedClips = $0.paste(slices, at: range.upperBound, targetTrackID: selectedTrackID, insertRipple: true)
                     }
@@ -729,7 +776,7 @@ final class AppModel {
                 var newClips: [UUID] = []
                 var newNotes: [UUID] = []
                 let beatShift = max(0.25, project.secondsPerBeat)
-                store.perform("Dupliquer") {
+                store.perform(L("Dupliquer", "Duplicate")) {
                     if !selectedClips.isEmpty {
                         newClips = $0.duplicateClips(selectedClips)
                     }
@@ -742,27 +789,27 @@ final class AppModel {
             }
         case .deleteSelection:
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
-                store.perform("Supprimer la plage") {
+                store.perform(L("Supprimer la plage", "Delete Range")) {
                     $0.deleteRange(range, trackIDs: targetTrackIDs, ripple: false)
                 }
                 selectionRange = nil
             } else if !selectedClips.isEmpty || !selectedNotes.isEmpty {
                 let clipIDs = selectedClips
                 let noteIDs = selectedNotes
-                store.perform("Supprimer") {
+                store.perform(L("Supprimer", "Delete")) {
                     if !clipIDs.isEmpty { $0.removeClips(clipIDs, ripple: false) }
                     if !noteIDs.isEmpty { $0.removeNotes(noteIDs, ripple: false) }
                 }
                 selectedClips.removeAll()
                 selectedNotes.removeAll()
             } else if let mID = selectedMarkerID {
-                store.perform("Supprimer le marqueur") { $0.removeMarker(mID) }
+                store.perform(L("Supprimer le marqueur", "Delete Marker")) { $0.removeMarker(mID) }
                 selectedMarkerID = nil
             }
         case .rippleDeleteSelection:
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
                 let start = range.lowerBound
-                store.perform("Supprimer et raccorder") {
+                store.perform(L("Supprimer et raccorder", "Ripple Delete")) {
                     $0.deleteRange(range, trackIDs: targetTrackIDs, ripple: true)
                 }
                 selectionRange = nil
@@ -770,7 +817,7 @@ final class AppModel {
             } else if !selectedClips.isEmpty || !selectedNotes.isEmpty {
                 let clipIDs = selectedClips
                 let noteIDs = selectedNotes
-                store.perform("Supprimer et raccorder") {
+                store.perform(L("Supprimer et raccorder", "Ripple Delete")) {
                     if !clipIDs.isEmpty { $0.removeClips(clipIDs, ripple: true) }
                     if !noteIDs.isEmpty { $0.removeNotes(noteIDs, ripple: true) }
                 }
@@ -785,10 +832,10 @@ final class AppModel {
             pasteClipboard()
         case .cropToSelection:
             guard let range = selectionRange, range.upperBound > range.lowerBound + 0.005 else {
-                flash("sélectionner une plage (I / O)")
+                flash(L("sélectionner une plage (I / O)", "select a range (I / O)"))
                 return
             }
-            store.perform("Rogner sur la plage") {
+            store.perform(L("Rogner sur la plage", "Crop to Range")) {
                 $0.cropToRange(range, trackIDs: nil)
             }
             selectionRange = nil
@@ -796,21 +843,21 @@ final class AppModel {
             timelineView?.fit()
         case .silenceSelection:
             guard let range = selectionRange, range.upperBound > range.lowerBound + 0.005 else {
-                flash("sélectionner une plage")
+                flash(L("sélectionner une plage", "select a range"))
                 return
             }
-            store.perform("Silence sur la plage") {
+            store.perform(L("Silence sur la plage", "Silence Range")) {
                 $0.silenceRange(range, trackIDs: targetTrackIDs)
             }
         case .fadeInQuick:
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
-                store.perform("Fondu d'entrée") {
+                store.perform(L("Fondu d'entrée", "Fade In")) {
                     $0.fadeInRange(range, trackIDs: targetTrackIDs)
                 }
             } else {
                 let ids = targetClipIDs
-                guard !ids.isEmpty else { flash("sélectionner un clip ou une plage"); return }
-                store.perform("Fondu d'entrée") { proj in
+                guard !ids.isEmpty else { flash(L("sélectionner un clip ou une plage", "select a clip or range")); return }
+                store.perform(L("Fondu d'entrée", "Fade In")) { proj in
                     for id in ids {
                         if let c = proj.clip(id: id) {
                             let dur = c.fadeIn > 0.01 ? 0 : min(0.5, c.duration * 0.35)
@@ -821,13 +868,13 @@ final class AppModel {
             }
         case .fadeOutQuick:
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
-                store.perform("Fondu de sortie") {
+                store.perform(L("Fondu de sortie", "Fade Out")) {
                     $0.fadeOutRange(range, trackIDs: targetTrackIDs)
                 }
             } else {
                 let ids = targetClipIDs
-                guard !ids.isEmpty else { flash("sélectionner un clip ou une plage"); return }
-                store.perform("Fondu de sortie") { proj in
+                guard !ids.isEmpty else { flash(L("sélectionner un clip ou une plage", "select a clip or range")); return }
+                store.perform(L("Fondu de sortie", "Fade Out")) { proj in
                     for id in ids {
                         if let c = proj.clip(id: id) {
                             let dur = c.fadeOut > 0.01 ? 0 : min(0.5, c.duration * 0.35)
@@ -839,18 +886,18 @@ final class AppModel {
         case .crossfadeSelection:
             let clips = selectedClipObjects.sorted { $0.offset < $1.offset }
             if clips.count >= 2 {
-                store.perform("Fondu enchaîné") { proj in
+                store.perform(L("Fondu enchaîné", "Crossfade")) { proj in
                     for i in 0..<(clips.count - 1) {
                         proj.crossfade(clipA: clips[i].id, clipB: clips[i + 1].id, duration: 0.25)
                     }
                 }
             } else {
-                flash("sélectionner 2 clips consécutifs")
+                flash(L("sélectionner 2 clips consécutifs", "select 2 consecutive clips"))
             }
         case .normalizeSelection:
             let ids = targetClipIDs
-            guard !ids.isEmpty else { flash("sélectionner un clip"); return }
-            store.perform("Normaliser") { proj in
+            guard !ids.isEmpty else { flash(L("sélectionner un clip", "select a clip")); return }
+            store.perform(L("Normaliser", "Normalize")) { proj in
                 for id in ids {
                     guard let c = proj.clip(id: id) else { continue }
                     let url = AudioProject.resolve(c.path, relativeTo: store.url)
@@ -862,8 +909,8 @@ final class AppModel {
             }
         case .reverseSelection:
             let ids = targetClipIDs
-            guard !ids.isEmpty else { flash("sélectionner un clip"); return }
-            store.perform("Inverser le sens") { proj in
+            guard !ids.isEmpty else { flash(L("sélectionner un clip", "select a clip")); return }
+            store.perform(L("Inverser le sens", "Reverse")) { proj in
                 for id in ids {
                     if let c = proj.clip(id: id) {
                         proj.setClipReversed(id: id, !c.reversed)
@@ -875,16 +922,16 @@ final class AppModel {
             if !selectedNotes.isEmpty {
                 let noteIDs = selectedNotes
                 let allMuted = noteIDs.compactMap { project.note(id: $0) }.allSatisfy(\.mute)
-                store.perform("Muet notes") { proj in
+                store.perform(L("Muet notes", "Mute Notes")) { proj in
                     for id in noteIDs { proj.setNoteMute(id: id, !allMuted) }
                 }
             } else if !clipIDs.isEmpty {
                 let allMuted = clipIDs.compactMap { project.clip(id: $0) }.allSatisfy(\.mute)
-                store.perform("Muet") { proj in
+                store.perform(L("Muet", "Mute")) { proj in
                     for id in clipIDs { proj.setClipMute(id: id, !allMuted) }
                 }
             } else if let t = activeTrack {
-                store.perform("Muet piste") { $0.setTrack(t.id, mute: !t.mute) }
+                store.perform(L("Muet piste", "Mute Track")) { $0.setTrack(t.id, mute: !t.mute) }
             }
         case .setIn:
             let t = playhead
@@ -904,29 +951,29 @@ final class AppModel {
         case .trimStartToPlayhead:
             let t = playhead
             let ids = targetClipIDs
-            store.perform("Début au point de lecture") { proj in
+            store.perform(L("Début au point de lecture", "Trim Start to Playhead")) { proj in
                 for id in ids { proj.trimClipStart(id: id, to: t) }
             }
         case .trimEndToPlayhead:
             let t = playhead
             let ids = targetClipIDs
-            store.perform("Fin au point de lecture") { proj in
+            store.perform(L("Fin au point de lecture", "Trim End to Playhead")) { proj in
                 for id in ids { proj.trimClipEnd(id: id, to: t) }
             }
         case .addTrack:
             var newID: UUID?
-            store.perform("Ajouter une piste audio") { newID = $0.addTrack() }
+            store.perform(L("Ajouter une piste audio", "Add Audio Track")) { newID = $0.addTrack() }
             if let newID { selectedTrackID = newID }
         case .addMIDITrack:
             addMIDITrack()
         case .duplicateTrack:
             guard let t = activeTrack else { return }
             var newID: UUID?
-            store.perform("Dupliquer la piste") { newID = $0.duplicateTrack(t.id) }
+            store.perform(L("Dupliquer la piste", "Duplicate Track")) { newID = $0.duplicateTrack(t.id) }
             if let newID { selectedTrackID = newID }
         case .deleteTrack:
             guard let t = activeTrack else { return }
-            store.perform("Supprimer la piste") { $0.removeTrack(t.id) }
+            store.perform(L("Supprimer la piste", "Delete Track")) { $0.removeTrack(t.id) }
             selectedTrackID = project.tracks.first?.id
         case .moveTrackUp:
             moveSelectedTrackUp()
@@ -943,7 +990,7 @@ final class AppModel {
         case .addMarker:
             let t = playhead
             var mID: UUID?
-            store.perform("Ajouter un marqueur") { mID = $0.addMarker(at: t) }
+            store.perform(L("Ajouter un marqueur", "Add Marker")) { mID = $0.addMarker(at: t) }
             selectedMarkerID = mID
         case .selectAll:
             selectedClips = Set(project.allClips.map(\.clip.id))
@@ -1020,7 +1067,7 @@ final class AppModel {
             }
         }
         guard !slices.isEmpty || !nSlices.isEmpty else {
-            flash("rien à copier")
+            flash(L("rien à copier", "nothing to copy"))
             return
         }
         clipboard = slices
@@ -1033,7 +1080,10 @@ final class AppModel {
             NSPasteboard.general.setData(data, forType: Self.notePasteboardType)
         }
         let totalCount = slices.count + nSlices.count
-        flash("\(totalCount) élément\(totalCount > 1 ? "s" : "") copié\(totalCount > 1 ? "s" : "")")
+        flash(L(
+            "\(totalCount) élément\(totalCount > 1 ? "s" : "") copié\(totalCount > 1 ? "s" : "")",
+            "\(totalCount) item\(totalCount > 1 ? "s" : "") copied"
+        ))
     }
 
     func cutSelection() {
@@ -1041,7 +1091,7 @@ final class AppModel {
         guard !clipboard.isEmpty || !noteClipboard.isEmpty else { return }
         if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
             let start = range.lowerBound
-            store.perform("Couper la plage") {
+            store.perform(L("Couper la plage", "Cut Range")) {
                 $0.deleteRange(range, trackIDs: targetTrackIDs, ripple: true)
             }
             selectionRange = nil
@@ -1049,7 +1099,7 @@ final class AppModel {
         } else if !selectedClips.isEmpty || !selectedNotes.isEmpty {
             let clipIDs = selectedClips
             let noteIDs = selectedNotes
-            store.perform("Couper") {
+            store.perform(L("Couper", "Cut")) {
                 if !clipIDs.isEmpty { $0.removeClips(clipIDs, ripple: true) }
                 if !noteIDs.isEmpty { $0.removeNotes(noteIDs, ripple: true) }
             }
@@ -1074,13 +1124,13 @@ final class AppModel {
             noteClipboard = decoded
         }
         guard !slices.isEmpty || !nSlices.isEmpty else {
-            flash("presse-papiers vide")
+            flash(L("presse-papiers vide", "clipboard empty"))
             return
         }
         let targetTime = selectionRange?.lowerBound ?? playhead
         var pastedClips: [UUID] = []
         var pastedNotes: [UUID] = []
-        store.perform("Coller") { proj in
+        store.perform(L("Coller", "Paste")) { proj in
             if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
                 proj.deleteRange(range, trackIDs: targetTrackIDs, ripple: true)
             }
@@ -1109,95 +1159,95 @@ final class AppModel {
     // MARK: Direct Inspector Setters
 
     func setClipOffset(_ id: UUID, _ v: Double) {
-        store.perform("Début du clip") { $0.setClipTiming(id: id, offset: v) }
+        store.perform(L("Début du clip", "Clip Start")) { $0.setClipTiming(id: id, offset: v) }
     }
 
     func setClipSourceStart(_ id: UUID, _ v: Double) {
-        store.perform("Point d'entrée") { $0.setClipTiming(id: id, sourceStart: v) }
+        store.perform(L("Point d'entrée", "In Point")) { $0.setClipTiming(id: id, sourceStart: v) }
     }
 
     func setClipDuration(_ id: UUID, _ v: Double) {
-        store.perform("Durée du clip") { $0.setClipTiming(id: id, duration: v) }
+        store.perform(L("Durée du clip", "Clip Duration")) { $0.setClipTiming(id: id, duration: v) }
     }
 
     func setClipGain(_ id: UUID, _ db: Double) {
-        store.perform("Gain du clip") { $0.setClipGain(id: id, db: db) }
+        store.perform(L("Gain du clip", "Clip Gain")) { $0.setClipGain(id: id, db: db) }
     }
 
     func setClipFades(_ id: UUID, fadeInMS: Double? = nil, fadeOutMS: Double? = nil, shape: FadeShape? = nil) {
-        store.perform("Fondu") {
+        store.perform(L("Fondu", "Fade")) {
             $0.setClipFades(id: id, fadeIn: fadeInMS.map { $0 / 1000.0 }, fadeOut: fadeOutMS.map { $0 / 1000.0 }, shape: shape)
         }
     }
 
     func setClipReversed(_ id: UUID, _ reversed: Bool) {
-        store.perform("Sens de lecture") { $0.setClipReversed(id: id, reversed) }
+        store.perform(L("Sens de lecture", "Playback Direction")) { $0.setClipReversed(id: id, reversed) }
     }
 
     func setClipMute(_ id: UUID, _ mute: Bool) {
-        store.perform("Muet") { $0.setClipMute(id: id, mute) }
+        store.perform(L("Muet", "Mute")) { $0.setClipMute(id: id, mute) }
     }
 
     func setTrackName(_ id: UUID, _ name: String) {
-        store.perform("Nom de piste") { $0.setTrack(id, name: name) }
+        store.perform(L("Nom de piste", "Track Name")) { $0.setTrack(id, name: name) }
     }
 
     func setTrackGain(_ id: UUID, _ db: Double) {
-        store.perform("Gain de piste") { $0.setTrack(id, gainDB: db) }
+        store.perform(L("Gain de piste", "Track Gain")) { $0.setTrack(id, gainDB: db) }
     }
 
     func setTrackPan(_ id: UUID, _ pan: Double) {
-        store.perform("Panoramique") { $0.setTrack(id, pan: pan) }
+        store.perform(L("Panoramique", "Pan")) { $0.setTrack(id, pan: pan) }
     }
 
     func setTrackMute(_ id: UUID, _ mute: Bool) {
-        store.perform("Muet piste") { $0.setTrack(id, mute: mute) }
+        store.perform(L("Muet piste", "Track Mute")) { $0.setTrack(id, mute: mute) }
     }
 
     func setTrackSolo(_ id: UUID, _ solo: Bool) {
-        store.perform("Solo piste") { $0.setTrack(id, solo: solo) }
+        store.perform(L("Solo piste", "Track Solo")) { $0.setTrack(id, solo: solo) }
     }
 
     func setTrackStereoSplit(_ id: UUID, _ split: Bool) {
-        store.perform("Affichage L/R") { $0.setTrack(id, stereoSplit: split) }
+        store.perform(L("Affichage L/R", "L/R Display")) { $0.setTrack(id, stereoSplit: split) }
     }
 
     func setTrackLocked(_ id: UUID, _ locked: Bool) {
-        store.perform("Verrouiller piste") { $0.setTrack(id, locked: locked) }
+        store.perform(L("Verrouiller piste", "Lock Track")) { $0.setTrack(id, locked: locked) }
     }
 
     func setMasterGain(_ db: Double) {
-        store.perform("Gain master") { $0.masterGainDB = min(max(db, -60), 24) }
+        store.perform(L("Gain master", "Master Gain")) { $0.masterGainDB = min(max(db, -60), 24) }
     }
 
     func setSampleRate(_ rate: Double) {
-        store.perform("Fréquence d'échantillonnage") { $0.sampleRate = rate }
+        store.perform(L("Fréquence d'échantillonnage", "Sample Rate")) { $0.sampleRate = rate }
     }
 
     func setBPM(_ bpm: Double) {
-        store.perform("Tempo") { $0.setTempo(bpm) }
+        store.perform(L("Tempo", "Tempo")) { $0.setTempo(bpm) }
     }
 
     func setTimeSignature(numerator: Int, denominator: Int) {
-        store.perform("Signature rythmique") { $0.setTimeSignature(numerator: numerator, denominator: denominator) }
+        store.perform(L("Signature rythmique", "Time Signature")) { $0.setTimeSignature(numerator: numerator, denominator: denominator) }
     }
 
     func setTrackProgram(_ id: UUID, _ program: Int) {
-        store.perform("Instrument GM") { $0.setTrackProgram(id, program: program) }
+        store.perform(L("Instrument GM", "GM Instrument")) { $0.setTrackProgram(id, program: program) }
     }
 
     func setTrackChannel(_ id: UUID, _ channel: Int, isDrum: Bool? = nil) {
-        store.perform("Canal MIDI") { $0.setTrackChannel(id, channel: channel, isDrum: isDrum) }
+        store.perform(L("Canal MIDI", "MIDI Channel")) { $0.setTrackChannel(id, channel: channel, isDrum: isDrum) }
     }
 
     func setTrackTranspose(_ id: UUID, _ semitones: Int) {
-        store.perform("Transposition piste") { $0.setTrackTranspose(id, semitones: semitones) }
+        store.perform(L("Transposition piste", "Track Transpose")) { $0.setTrackTranspose(id, semitones: semitones) }
     }
 
     func toggleTrackPianoRoll(_ id: UUID) {
         guard let ti = project.trackIndex(of: id) else { return }
         let expanded = !project.tracks[ti].pianoRollExpanded
-        store.perform(expanded ? "Ouvrir le Piano-Roll" : "Réduire le Piano-Roll") {
+        store.perform(expanded ? L("Ouvrir le Piano-Roll", "Expand Piano Roll") : L("Réduire le Piano-Roll", "Collapse Piano Roll")) {
             $0.setTrackPianoRollExpanded(id, expanded)
         }
     }
@@ -1213,7 +1263,7 @@ final class AppModel {
     @discardableResult
     func addMIDITrack(name: String? = nil, program: Int = 0, isDrum: Bool = false) -> UUID {
         var newID = UUID()
-        store.perform("Ajouter une piste MIDI") { proj in
+        store.perform(L("Ajouter une piste MIDI", "Add MIDI Track")) { proj in
             newID = proj.addMIDITrack(
                 name: name,
                 program: program,
@@ -1227,7 +1277,7 @@ final class AppModel {
 
     func setNotePitch(_ id: UUID, _ pitch: Int) {
         let clamped = min(max(pitch, 0), 127)
-        store.perform("Hauteur de note") { $0.setNotePitch(id, pitch: clamped) }
+        store.perform(L("Hauteur de note", "Note Pitch")) { $0.setNotePitch(id, pitch: clamped) }
         if let (ti, _) = project.noteLocation(of: id) {
             let tr = project.tracks[ti]
             engine.previewNote(pitch: clamped, velocity: 100, program: tr.program, isDrum: tr.isDrum || tr.channel == 9)
@@ -1235,35 +1285,35 @@ final class AppModel {
     }
 
     func setNoteVelocity(_ id: UUID, _ velocity: Int) {
-        store.perform("Vélocité de note") { $0.setNoteVelocity(id, velocity: velocity) }
+        store.perform(L("Vélocité de note", "Note Velocity")) { $0.setNoteVelocity(id, velocity: velocity) }
     }
 
     func setNoteStart(_ id: UUID, _ start: Double) {
         guard let n = project.note(id: id) else { return }
-        store.perform("Début de note") { $0.moveNote(id, toStart: start, pitch: n.pitch) }
+        store.perform(L("Début de note", "Note Start")) { $0.moveNote(id, toStart: start, pitch: n.pitch) }
     }
 
     func setNoteDuration(_ id: UUID, _ duration: Double) {
         guard let n = project.note(id: id) else { return }
-        store.perform("Durée de note") { $0.trimNote(id, start: n.start, duration: duration) }
+        store.perform(L("Durée de note", "Note Duration")) { $0.trimNote(id, start: n.start, duration: duration) }
     }
 
     func setNoteMute(_ id: UUID, _ mute: Bool) {
-        store.perform("Muet note") { $0.setNoteMute(id: id, mute) }
+        store.perform(L("Muet note", "Note Mute")) { $0.setNoteMute(id: id, mute) }
     }
 
     func quantizeSelection(subdivisionBeats: Double = 0.25) {
         let ids: Set<UUID>? = selectedNotes.isEmpty ? nil : selectedNotes
-        store.perform("Quantifier") {
+        store.perform(L("Quantifier", "Quantize")) {
             $0.quantizeNotes(ids, subdivisionBeats: subdivisionBeats, trackIDs: ids == nil ? targetTrackIDs : nil)
         }
-        flash("quantifié (1/16)")
+        flash(L("quantifié (1/16)", "quantized (1/16)"))
     }
 
     func transposeSelection(semitones: Int) {
         if !selectedNotes.isEmpty {
             let ids = selectedNotes
-            store.perform("Transposer (\(semitones > 0 ? "+\(semitones)" : "\(semitones)"))") {
+            store.perform(L("Transposer (\(semitones > 0 ? "+\(semitones)" : "\(semitones)"))", "Transpose (\(semitones > 0 ? "+\(semitones)" : "\(semitones)"))")) {
                 $0.transposeNotes(ids, semitones: semitones)
             }
             if let first = selectedNoteObjects.first,
@@ -1271,11 +1321,14 @@ final class AppModel {
                 let tr = project.tracks[ti]
                 engine.previewNote(pitch: first.pitch, velocity: first.velocity, program: tr.program, isDrum: tr.isDrum || tr.channel == 9)
             }
-            flash("transposé \(semitones > 0 ? "+\(semitones)" : "\(semitones)") demi-ton\(abs(semitones) > 1 ? "s" : "")")
+            flash(L(
+                "transposé \(semitones > 0 ? "+\(semitones)" : "\(semitones)") demi-ton\(abs(semitones) > 1 ? "s" : "")",
+                "transposed \(semitones > 0 ? "+\(semitones)" : "\(semitones)") semitone\(abs(semitones) > 1 ? "s" : "")"
+            ))
         } else if let t = activeTrack, t.isMIDI {
             let next = min(max(t.transpose + semitones, -48), 48)
             setTrackTranspose(t.id, next)
-            flash("piste transposée \(next > 0 ? "+\(next)" : "\(next)") st")
+            flash(L("piste transposée \(next > 0 ? "+\(next)" : "\(next)") st", "track transposed \(next > 0 ? "+\(next)" : "\(next)") st"))
         }
     }
 
@@ -1285,7 +1338,7 @@ final class AppModel {
         guard let ti = project.trackIndex(of: trackID) else { return nil }
         let track = project.tracks[ti]
         guard !track.notes.isEmpty else {
-            flash("piste MIDI vide")
+            flash(L("piste MIDI vide", "empty MIDI track"))
             return nil
         }
         let targetDir: URL
@@ -1305,7 +1358,7 @@ final class AppModel {
                 clip.path = AudioProject.storedPath(for: wavURL, relativeTo: store.url)
             }
             var resultTrackID = track.id
-            store.perform(replaceMIDITrack ? "Convertir MIDI en piste Audio" : "Rendre MIDI en piste Audio") { proj in
+            store.perform(replaceMIDITrack ? L("Convertir MIDI en piste Audio", "Convert MIDI to Audio Track") : L("Rendre MIDI en piste Audio", "Bounce MIDI to Audio Track")) { proj in
                 guard let idx = proj.trackIndex(of: trackID) else { return }
                 if replaceMIDITrack {
                     proj.tracks[idx].kind = .audio
@@ -1332,10 +1385,10 @@ final class AppModel {
             selectedClips = [clip.id]
             selectedNotes.removeAll()
             engine.update(project: store.project, projectURL: store.url)
-            flash("piste MIDI convertie en Audio")
+            flash(L("piste MIDI convertie en Audio", "MIDI track bounced to Audio"))
             return resultTrackID
         } catch {
-            errorMessage = "Impossible de convertir la piste MIDI en Audio : \(error.localizedDescription)"
+            errorMessage = L("Impossible de convertir la piste MIDI en Audio : \(error.localizedDescription)", "Could not convert MIDI track to Audio: \(error.localizedDescription)")
             return nil
         }
     }
@@ -1369,7 +1422,7 @@ final class AppModel {
             try? await Task.sleep(nanoseconds: 2_200_000_000)
             if !Task.isCancelled {
                 self?.statusFlash = nil
-                self?.statusMessage = "Prêt"
+                self?.statusMessage = L("Prêt", "Ready")
             }
         }
     }
@@ -1398,7 +1451,7 @@ final class AppModel {
         guard let from = project.trackIndex(of: id) else { return }
         let clamped = min(max(destination, 0), max(0, project.tracks.count - 1))
         guard clamped != from else { return }
-        store.perform("Réordonner la piste") { proj in
+        store.perform(L("Réordonner la piste", "Reorder Track")) { proj in
             proj.moveTrack(id, to: clamped)
         }
         selectedTrackID = id
@@ -1434,13 +1487,13 @@ final class AppModel {
 
     func applyFadeIn(duration: Double = 0.5, shape: FadeShape? = nil) {
         if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
-            store.perform("Fondu d'entrée") {
+            store.perform(L("Fondu d'entrée", "Fade In")) {
                 $0.fadeInRange(range, shape: shape, trackIDs: targetTrackIDs)
             }
         } else {
             let ids = targetClipIDs
             guard !ids.isEmpty else { return }
-            store.perform("Fondu d'entrée") { proj in
+            store.perform(L("Fondu d'entrée", "Fade In")) { proj in
                 for id in ids {
                     if let c = proj.clip(id: id) {
                         proj.setClipFades(id: id, fadeIn: min(duration, c.duration * 0.5), shape: shape)
@@ -1452,13 +1505,13 @@ final class AppModel {
 
     func applyFadeOut(duration: Double = 0.5, shape: FadeShape? = nil) {
         if let range = selectionRange, range.upperBound > range.lowerBound + 0.005 {
-            store.perform("Fondu de sortie") {
+            store.perform(L("Fondu de sortie", "Fade Out")) {
                 $0.fadeOutRange(range, shape: shape, trackIDs: targetTrackIDs)
             }
         } else {
             let ids = targetClipIDs
             guard !ids.isEmpty else { return }
-            store.perform("Fondu de sortie") { proj in
+            store.perform(L("Fondu de sortie", "Fade Out")) { proj in
                 for id in ids {
                     if let c = proj.clip(id: id) {
                         proj.setClipFades(id: id, fadeOut: min(duration, c.duration * 0.5), shape: shape)
@@ -1471,7 +1524,7 @@ final class AppModel {
     func normalizeSelectedClips(targetDB: Double = -0.1) {
         let ids = targetClipIDs
         guard !ids.isEmpty else { return }
-        store.perform("Normaliser") { proj in
+        store.perform(L("Normaliser", "Normalize")) { proj in
             for id in ids {
                 guard let c = proj.clip(id: id) else { continue }
                 let url = AudioProject.resolve(c.path, relativeTo: store.url)
@@ -1486,7 +1539,7 @@ final class AppModel {
     func stripSilenceOnSelected(thresholdDB: Double = -42) {
         let ids = targetClipIDs
         guard !ids.isEmpty else { return }
-        store.perform("Élaguer les silences") { proj in
+        store.perform(L("Élaguer les silences", "Strip Silence")) { proj in
             for id in ids {
                 guard let c = proj.clip(id: id) else { continue }
                 let url = AudioProject.resolve(c.path, relativeTo: store.url)
@@ -1538,12 +1591,12 @@ final class AppModel {
     func addMarkerAtPlayhead(name: String? = nil) {
         let t = playhead
         var mID: UUID?
-        store.perform("Ajouter un marqueur") { mID = $0.addMarker(name: name, at: t) }
+        store.perform(L("Ajouter un marqueur", "Add Marker")) { mID = $0.addMarker(name: name, at: t) }
         selectedMarkerID = mID
     }
 
     func removeMarker(_ id: UUID) {
-        store.perform("Supprimer le marqueur") { $0.removeMarker(id) }
+        store.perform(L("Supprimer le marqueur", "Delete Marker")) { $0.removeMarker(id) }
         if selectedMarkerID == id { selectedMarkerID = nil }
     }
 

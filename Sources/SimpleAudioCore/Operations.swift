@@ -28,9 +28,9 @@ extension AudioProject {
         if let n = name?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
             defaultName = n
         } else if kind == .midi {
-            defaultName = isDrum ? "Batterie GM" : GeneralMIDI.programName(program)
+            defaultName = isDrum ? L("Batterie GM", "GM Drums") : GeneralMIDI.programName(program)
         } else {
-            defaultName = "Piste \(tracks.count + 1)"
+            defaultName = L("Piste \(tracks.count + 1)", "Track \(tracks.count + 1)")
         }
         let track = AudioTrack(
             name: defaultName,
@@ -82,7 +82,7 @@ extension AudioProject {
         guard let i = trackIndex(of: id) else { return nil }
         var copy = tracks[i]
         copy.id = UUID()
-        copy.name = copy.name + " (copie)"
+        copy.name = copy.name + L(" (copie)", " (copy)")
         copy.colorIndex = (copy.colorIndex + 1) % 8
         copy.locked = false
         copy.clips = copy.clips.map { c in

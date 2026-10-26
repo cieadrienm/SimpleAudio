@@ -18,12 +18,13 @@ struct ExportSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
+        let _ = model.language
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color(nsColor: Theme.accent))
-                Text("Exporter l'audio")
+                Text(L("Exporter l'audio", "Export Audio"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(nsColor: Theme.text))
                 Spacer()
@@ -32,7 +33,7 @@ struct ExportSheet: View {
             Divider().overlay(Color(nsColor: Theme.separator))
 
             VStack(alignment: .leading, spacing: 11) {
-                FieldRow("Format") {
+                FieldRow(L("Format", "Format")) {
                     Picker("", selection: $format) {
                         ForEach(ExportFormat.allCases, id: \.self) { fmt in
                             Text(fmt.label).tag(fmt)
@@ -44,7 +45,7 @@ struct ExportSheet: View {
                 }
 
                 if format != .mid {
-                    FieldRow("Fréquence") {
+                    FieldRow(L("Fréquence", "Sample Rate")) {
                         Picker("", selection: $sampleRate) {
                             Text("44 100 Hz").tag(44_100.0)
                             Text("48 000 Hz").tag(48_000.0)
@@ -56,11 +57,11 @@ struct ExportSheet: View {
                     }
 
                     if format == .wav || format == .aiff || format == .caf {
-                        FieldRow("Résolution") {
+                        FieldRow(L("Résolution", "Bit Depth")) {
                             Picker("", selection: $bitDepth) {
                                 ForEach(ExportBitDepth.allCases, id: \.self) { depth in
                                     Text(depth.label).tag(depth)
-                                }
+                                                                }
                             }
                             .labelsHidden()
                             .pickerStyle(.segmented)
@@ -68,10 +69,10 @@ struct ExportSheet: View {
                         }
                     }
 
-                    FieldRow("Canaux") {
+                    FieldRow(L("Canaux", "Channels")) {
                         Picker("", selection: $channels) {
-                            Text("Stéréo (L/R)").tag(2)
-                            Text("Mono").tag(1)
+                            Text(L("Stéréo (L/R)", "Stereo (L/R)")).tag(2)
+                            Text(L("Mono", "Mono")).tag(1)
                         }
                         .labelsHidden()
                         .pickerStyle(.segmented)
@@ -79,10 +80,16 @@ struct ExportSheet: View {
                     }
 
                     if let range = model.selectionRange, range.upperBound > range.lowerBound + 1e-4 {
-                        FieldRow("Étendue") {
+                        FieldRow(L("Étendue", "Range")) {
                             Picker("", selection: $exportRangeOnly) {
-                                Text("Projet complet (\(TimeFormat.shortDuration(model.store.project.totalDuration)))").tag(false)
-                                Text("Plage (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))").tag(true)
+                                Text(L(
+                                    "Projet complet (\(TimeFormat.shortDuration(model.store.project.totalDuration)))",
+                                    "Full Project (\(TimeFormat.shortDuration(model.store.project.totalDuration)))"
+                                )).tag(false)
+                                Text(L(
+                                    "Plage (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))",
+                                    "Selection Range (\(TimeFormat.shortDuration(range.upperBound - range.lowerBound)))"
+                                )).tag(true)
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
@@ -90,28 +97,31 @@ struct ExportSheet: View {
                         }
                     }
 
-                    FieldRow("Sortie") {
+                    FieldRow(L("Sortie", "Output")) {
                         Picker("", selection: $exportStems) {
-                            Text("Mixage stéréo (Master)").tag(false)
-                            Text("Pistes séparées (Stems)").tag(true)
+                            Text(L("Mixage stéréo (Master)", "Stereo Mix (Master)")).tag(false)
+                            Text(L("Pistes séparées (Stems)", "Separate Tracks (Stems)")).tag(true)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
                         .frame(width: 220)
                     }
 
-                    FieldRow("Niveau") {
+                    FieldRow(L("Niveau", "Level")) {
                         Picker("", selection: $normMode) {
-                            Text("Niveau tel quel").tag(0)
-                            Text("Normaliser crête (-0.1 dBFS)").tag(1)
-                            Text("Normaliser loudness (-14 LUFS)").tag(2)
+                            Text(L("Niveau tel quel", "As-Is Level")).tag(0)
+                            Text(L("Normaliser crête (-0.1 dBFS)", "Peak Normalize (-0.1 dBFS)")).tag(1)
+                            Text(L("Normaliser loudness (-14 LUFS)", "Loudness Normalize (-14 LUFS)")).tag(2)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
                         .frame(width: 220)
                     }
                 } else {
-                    Text("Exporte toutes les pistes MIDI du projet au format Standard MIDI File (.mid Format 1) avec tempo et signature.")
+                    Text(L(
+                        "Exporte toutes les pistes MIDI du projet au format Standard MIDI File (.mid Format 1) avec tempo et signature.",
+                        "Exports all project MIDI tracks as a Standard MIDI File (.mid Format 1) with tempo and time signature."
+                    ))
                         .font(.system(size: 11))
                         .foregroundStyle(Color(nsColor: Theme.textDim))
                         .padding(.vertical, 4)
@@ -127,12 +137,12 @@ struct ExportSheet: View {
             Divider().overlay(Color(nsColor: Theme.separator))
 
             HStack {
-                TextButton(title: "Annuler") {
+                TextButton(title: L("Annuler", "Cancel")) {
                     model.showExportSheet = false
                 }
                 Spacer()
                 TextButton(
-                    title: exporting ? "Export en cours…" : (exportStems ? "Exporter les stems…" : "Exporter…"),
+                    title: exporting ? L("Export en cours…", "Exporting…") : (exportStems ? L("Exporter les stems…", "Export Stems…") : L("Exporter…", "Export…")),
                     symbol: "checkmark.circle.fill",
                     prominent: true,
                     disabled: exporting
@@ -158,7 +168,7 @@ struct ExportSheet: View {
 
         if exportStems {
             let panel = NSOpenPanel()
-            panel.title = "Choisir le dossier pour les pistes (Stems)"
+            panel.title = L("Choisir le dossier pour les pistes (Stems)", "Choose Folder for Track Stems")
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
             panel.canCreateDirectories = true
@@ -177,7 +187,10 @@ struct ExportSheet: View {
                     baseURL: model.store.url
                 )
                 exporting = false
-                model.statusMessage = "\(urls.count) pistes exportées vers \(folder.lastPathComponent)"
+                model.statusMessage = L(
+                    "\(urls.count) pistes exportées vers \(folder.lastPathComponent)",
+                    "\(urls.count) stems exported to \(folder.lastPathComponent)"
+                )
                 model.showExportSheet = false
             } catch {
                 exporting = false
@@ -185,7 +198,7 @@ struct ExportSheet: View {
             }
         } else {
             let panel = NSSavePanel()
-            panel.title = "Exporter l'audio"
+            panel.title = L("Exporter l'audio", "Export Audio")
             let baseName = model.store.url?.deletingPathExtension().lastPathComponent ?? "Export"
             panel.nameFieldStringValue = "\(baseName).\(format.fileExtension)"
             guard panel.runModal() == .OK, let dest = panel.url else { return }
@@ -212,7 +225,7 @@ struct ExportSheet: View {
                 )
                 exporting = false
                 model.statusMessage = String(
-                    format: "Exporté : %@ (%.2f s, %.1f dBFS, %.1f LUFS)",
+                    format: L("Exporté : %@ (%.2f s, %.1f dBFS, %.1f LUFS)", "Exported: %@ (%.2f s, %.1f dBFS, %.1f LUFS)"),
                     res.url.lastPathComponent,
                     res.duration,
                     res.peakDB,

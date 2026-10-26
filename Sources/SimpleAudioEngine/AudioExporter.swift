@@ -14,8 +14,8 @@ public enum ExportBitDepth: Int, CaseIterable, Codable, Sendable, Identifiable {
     public var id: Int { rawValue }
     public var label: String {
         switch self {
-        case .int16: return "16 bits"
-        case .int24: return "24 bits"
+        case .int16: return L("16 bits", "16-bit")
+        case .int24: return L("24 bits", "24-bit")
         case .float32: return "32f"
         }
     }
@@ -103,7 +103,7 @@ public enum AudioExportFormat: String, CaseIterable, Codable, Sendable, Identifi
         case .alac: return "M4A (Apple Lossless)"
         case .flac: return "FLAC"
         case .mp3: return "MP3"
-        case .mid: return "MIDI Standard (.mid)"
+        case .mid: return L("MIDI Standard (.mid)", "Standard MIDI (.mid)")
         }
     }
 
@@ -136,8 +136,8 @@ public enum AudioNormalization: String, CaseIterable, Codable, Sendable, Identif
 
     public var label: String {
         switch self {
-        case .none: return "Aucune"
-        case .peak: return "Crête (−0.1 dBFS)"
+        case .none: return L("Aucune", "None")
+        case .peak: return L("Crête (−0.1 dBFS)", "Peak (−0.1 dBFS)")
         case .lufs: return "Loudness (−14 LUFS)"
         }
     }
@@ -180,11 +180,11 @@ public enum AudioExportError: Error, LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .emptyProject: return "Projet vide (aucun clip à exporter)"
-        case .invalidRange: return "Plage d'export invalide"
-        case .cannotCreateFile(let m): return "Impossible de créer le fichier : \(m)"
-        case .encodingFailed(let m): return "Échec de l'encodage : \(m)"
-        case .ffmpegRequiredForMP3: return "ffmpeg est requis pour l'export MP3"
+        case .emptyProject: return L("Projet vide (aucun clip à exporter)", "Empty project (no clips to export)")
+        case .invalidRange: return L("Plage d'export invalide", "Invalid export range")
+        case .cannotCreateFile(let m): return L("Impossible de créer le fichier : \(m)", "Cannot create file: \(m)")
+        case .encodingFailed(let m): return L("Échec de l'encodage : \(m)", "Encoding failed: \(m)")
+        case .ffmpegRequiredForMP3: return L("ffmpeg est requis pour l'export MP3", "ffmpeg is required for MP3 export")
         }
     }
 }
